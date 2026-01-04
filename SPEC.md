@@ -46,10 +46,10 @@ interface TimelineEvent {
   description: string;           // 1 sentence (~200 chars)
   longDescription: string;       // 1-2 paragraphs (~1000 chars)
 
-  // Temporal
+  // Temporal - supports BCE/CE dates (past and future)
   type: 'point' | 'span';
-  startDate: string;             // ISO 8601 date (YYYY-MM-DD or full datetime)
-  endDate?: string;              // ISO 8601 date, required if type === 'span'
+  startDate: string;             // Extended ISO 8601 (see Date Format below)
+  endDate?: string;              // Extended ISO 8601, required if type === 'span'
   datePrecision: 'year' | 'month' | 'day' | 'datetime';
 
   // Location (optional)
@@ -83,6 +83,35 @@ interface EventSource {
   accessedAt?: string;           // When the source was accessed
 }
 ```
+
+#### Date Format (Extended ISO 8601)
+
+The timeline supports dates from deep history (BCE) to the far future. We use an extended ISO 8601 format:
+
+```typescript
+// CE dates (positive years): standard ISO 8601
+"2024-03-15"           // March 15, 2024 CE
+"1066-10-14"           // October 14, 1066 CE
+"0476-09-04"           // September 4, 476 CE (Fall of Rome)
+
+// BCE dates (negative years): prefixed with minus sign
+"-0753-04-21"          // April 21, 753 BCE (Founding of Rome)
+"-0044-03-15"          // March 15, 44 BCE (Assassination of Caesar)
+"-13800000000"         // ~13.8 billion years ago (Big Bang, year precision)
+
+// Year-only precision
+"2024"                 // Year 2024
+"-0500"                // 500 BCE
+
+// With time (for datetime precision)
+"2024-03-15T14:30:00Z" // March 15, 2024 at 2:30 PM UTC
+```
+
+**Implementation Notes**:
+- Store as strings to preserve precision and avoid JavaScript Date limitations
+- Use a date library that supports astronomical year numbering (e.g., Temporal API, Luxon)
+- Year 0 exists in astronomical notation (equivalent to 1 BCE in historical notation)
+- For display, convert negative years to "BCE" notation: `-0044` → "44 BCE"
 
 ### 1.3 Track
 
@@ -125,14 +154,13 @@ const TRACK_COLORS: Record<TrackColor, string> = {
 };
 ```
 
-### 1.4 Chat Messages
+### 1.4 Chat Messages (Ephemeral)
 
-Messages exchanged in the chat interface for LLM interaction.
+Messages exchanged in the chat interface for LLM interaction. **Chat history is not persisted** — it exists only in the current session and is cleared on page reload. Only timelines and events are saved to the database.
 
 ```typescript
 interface ChatMessage {
-  id: string;                    // UUID v4
-  timelineId: string;
+  id: string;                    // UUID v4 (client-generated)
   role: 'user' | 'assistant' | 'system';
   content: string;
 
@@ -146,6 +174,8 @@ interface ChatMessage {
   error?: string;
 }
 ```
+
+**Rationale**: Chat is primarily a tool for generating events. Once events are accepted into the timeline, the chat conversation that produced them is no longer essential. This simplifies the data model and reduces storage requirements.
 
 ### 1.5 User
 
@@ -346,10 +376,45 @@ Mobile/Tablet Portrait:
 **Event Rendering**:
 - **Point events**: Circular nodes at specific date
 - **Span events**: Horizontal lines/bars from start to end date
-- **Stacking**: When events overlap:
-  - Point events render above span events
-  - Multiple overlapping events stack vertically within their track
-  - No horizontal overlap - offset vertically
+
+#### Event Stacking (GarageBand-style)
+
+When events overlap temporally, they stack vertically within their track. The layout follows GarageBand's approach: show as many events as fit without excessive scrolling.
+
+**Stacking Rules**:
+1. Point events render above span events at the same time
+2. Overlapping events stack vertically (no horizontal overlap)
+3. **Maximum stack depth: 8 events** per track
+4. If more than 8 events overlap, show "+N more" indicator
+
+**Layout Algorithm**:
+```typescript
+interface EventLayout {
+  eventId: string;
+  x: number;           // Horizontal position (from date)
+  width: number;       // Width (1px for points, calculated for spans)
+  lane: number;        // Vertical lane within track (0-7)
+  collapsed: boolean;  // True if in overflow "+N more" group
+}
+
+// Assign events to lanes using greedy algorithm:
+// 1. Sort events by start date
+// 2. For each event, find first available lane (0-7)
+// 3. Lane is "available" if no event in that lane overlaps temporally
+// 4. If no lane available (all 8 occupied), mark as collapsed
+```
+
+**Track Height Calculation**:
+- Each track has a minimum height (e.g., 60px for 1-2 lanes)
+- Track expands based on max lane occupancy at any point in time
+- Maximum track height caps at 8 lanes (~200px)
+- Collapsed events accessible via hover/click on "+N more"
+
+**Scroll Behavior**:
+- Timeline panel should fit on screen without vertical scrolling on large displays (desktop, iPad landscape)
+- If total track heights exceed viewport, enable vertical scroll (similar to GarageBand's track list)
+- On mobile, more permissive scrolling is expected
+- Goal: Scrolling should be rare, reserved for timelines with many parallel tracks or extremely dense events
 
 **Interactions**:
 - Click event: Focus in detail panel
@@ -362,8 +427,44 @@ Mobile/Tablet Portrait:
 - Adaptive labels based on zoom level:
   - Zoomed out: Years, decades, centuries
   - Zoomed in: Months, days
-- Padding at start and end (configurable, e.g., 10% of visible range)
 - Current date indicator (if in range)
+
+#### Timeline Boundary Calculation
+
+The visible timeline range is calculated from event dates with smart padding:
+
+1. **Find event bounds**: Get earliest `startDate` and latest `endDate` (or `startDate` for point events)
+2. **Apply 5% padding**: Add 5% of the total range to each end
+3. **Snap to clean boundaries**: Round outward to the nearest clean unit based on scale
+
+**Snapping Rules** (based on range duration):
+
+| Range Duration | Snap To | Example |
+|----------------|---------|---------|
+| < 1 month | Day | Mar 5 → Mar 1, Aug 9 → Aug 31 |
+| < 1 year | Month | Mar 5 → Jan 1, Aug 9 → Dec 31 |
+| 1-10 years | Year | Mar 1939 → Jan 1939, Aug 1947 → Dec 1947 (shows "1948" line) |
+| 10-100 years | Decade | 1939 → 1930, 1947 → 1950 |
+| 100-1000 years | Century | 1066 → 1000, 1485 → 1500 |
+| > 1000 years | Millennium | 753 BCE → 1000 BCE, 476 CE → 1000 CE |
+
+**Example**: Events from March 5, 1939 to August 9, 1947
+- Raw range: ~8.4 years
+- With 5% padding: ~8.8 years (still in 1-10 year bucket)
+- Snap to years: **January 1, 1939 to December 31, 1947**
+- Axis shows: `1939 | 1940 | 1941 | ... | 1947 | 1948` (1948 line marks end of 1947)
+
+```typescript
+interface TimelineBounds {
+  dataStart: string;      // Earliest event date
+  dataEnd: string;        // Latest event date
+  viewStart: string;      // Padded + snapped start
+  viewEnd: string;        // Padded + snapped end
+  snapUnit: 'day' | 'month' | 'year' | 'decade' | 'century' | 'millennium';
+}
+
+function calculateTimelineBounds(events: TimelineEvent[]): TimelineBounds;
+```
 
 **Staged Events** (LLM suggestions):
 - Displayed in staging track
@@ -510,6 +611,8 @@ Response: { success: boolean }
 
 ### 4.3 Chat / LLM Generation
 
+Chat history is **ephemeral** (session-only, not persisted). Each request is stateless.
+
 ```typescript
 // POST /api/timelines/:id/chat
 // Send message and generate events
@@ -524,9 +627,7 @@ Response: (streaming)
   - Chat message chunks
   - Generated events (as JSON in final message)
 
-// GET /api/timelines/:id/chat/history
-// Get chat history for timeline
-Response: { messages: ChatMessage[] }
+// Note: No GET endpoint for chat history - chat is not persisted
 ```
 
 ### 4.4 Sharing
@@ -741,7 +842,200 @@ interface TouchGestures {
 
 ---
 
-## 8. Database Schema (Prisma)
+## 8. Maps (MapLibre GL JS)
+
+Event locations are displayed on a minimal, clean map. We use **MapLibre GL JS** — a free, open-source fork of Mapbox GL JS that supports custom vector tile styling.
+
+### 8.1 Design Goals
+
+- **Minimal aesthetic**: Clean, simple visuals that don't distract from timeline content
+- **Progressive detail**: Show appropriate detail based on zoom level
+- **Free and open**: No API key costs, uses OpenStreetMap data via free tile providers
+- **Programmable style**: Full control over visual appearance
+
+### 8.2 Detail Levels
+
+| Zoom Level | What's Shown | Example Use |
+|------------|--------------|-------------|
+| 0-3 (World) | Continents, oceans, major water bodies | "Europe", "Pacific Ocean" |
+| 4-6 (Region) | Country borders, country labels | "France", "Japan" |
+| 7-9 (Country) | State/province borders, major cities | "California", "Bavaria" |
+| 10-12 (State) | Cities, major roads | "San Francisco Bay Area" |
+| 13-15 (City) | Streets, neighborhoods, landmarks | "Downtown Manhattan" |
+| 16+ (Local) | Buildings, detailed streets | Specific addresses |
+
+### 8.3 Minimal Style Specification
+
+Custom MapLibre style with muted colors and minimal labels:
+
+```typescript
+const minimalMapStyle: maplibregl.StyleSpecification = {
+  version: 8,
+  name: 'Timeline Minimal',
+  sources: {
+    // Free vector tiles from OpenMapTiles via public CDN
+    openmaptiles: {
+      type: 'vector',
+      url: 'https://tiles.stadiamaps.com/data/openmaptiles.json'
+      // Alternative: MapTiler free tier, or self-hosted
+    }
+  },
+  layers: [
+    // Background (land)
+    {
+      id: 'background',
+      type: 'background',
+      paint: {
+        'background-color': '#F5F5F5'  // Light gray land
+      }
+    },
+    // Water (oceans, lakes, rivers)
+    {
+      id: 'water',
+      type: 'fill',
+      source: 'openmaptiles',
+      'source-layer': 'water',
+      paint: {
+        'fill-color': '#D4E5F7'  // Soft blue water
+      }
+    },
+    // Country borders
+    {
+      id: 'country-borders',
+      type: 'line',
+      source: 'openmaptiles',
+      'source-layer': 'boundary',
+      filter: ['==', 'admin_level', 2],
+      paint: {
+        'line-color': '#CCCCCC',
+        'line-width': 1
+      }
+    },
+    // State/province borders (visible at zoom 5+)
+    {
+      id: 'state-borders',
+      type: 'line',
+      source: 'openmaptiles',
+      'source-layer': 'boundary',
+      filter: ['==', 'admin_level', 4],
+      minzoom: 5,
+      paint: {
+        'line-color': '#DDDDDD',
+        'line-width': 0.5,
+        'line-dasharray': [2, 2]
+      }
+    },
+    // Major roads (visible at zoom 10+)
+    {
+      id: 'roads-major',
+      type: 'line',
+      source: 'openmaptiles',
+      'source-layer': 'transportation',
+      filter: ['in', 'class', 'motorway', 'trunk', 'primary'],
+      minzoom: 10,
+      paint: {
+        'line-color': '#E0E0E0',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 15, 3]
+      }
+    },
+    // Country labels (visible at zoom 3+)
+    {
+      id: 'country-labels',
+      type: 'symbol',
+      source: 'openmaptiles',
+      'source-layer': 'place',
+      filter: ['==', 'class', 'country'],
+      minzoom: 3,
+      layout: {
+        'text-field': '{name}',
+        'text-size': 12,
+        'text-font': ['Open Sans Regular']
+      },
+      paint: {
+        'text-color': '#666666'
+      }
+    },
+    // City labels (visible at zoom 7+)
+    {
+      id: 'city-labels',
+      type: 'symbol',
+      source: 'openmaptiles',
+      'source-layer': 'place',
+      filter: ['in', 'class', 'city', 'town'],
+      minzoom: 7,
+      layout: {
+        'text-field': '{name}',
+        'text-size': 10,
+        'text-font': ['Open Sans Regular']
+      },
+      paint: {
+        'text-color': '#888888'
+      }
+    }
+  ]
+};
+```
+
+### 8.4 Event Location Marker
+
+Simple, clean marker for event locations:
+
+```typescript
+interface LocationMarkerProps {
+  coordinates: [number, number];  // [longitude, latitude]
+  color?: string;                 // Track color, defaults to blue
+  label?: string;                 // Optional location name tooltip
+}
+
+// Marker style: Simple filled circle with subtle shadow
+const markerStyle = {
+  width: 12,
+  height: 12,
+  borderRadius: '50%',
+  backgroundColor: 'var(--color-track-blue)',
+  border: '2px solid white',
+  boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+};
+```
+
+### 8.5 Map Component Usage
+
+```typescript
+// In EventLocation component
+<MiniMap
+  center={[event.location.longitude, event.location.latitude]}
+  zoom={calculateZoomForLocation(event.location)}
+  style={minimalMapStyle}
+  interactive={false}  // Static map in detail panel
+  markerColor={trackColor}
+/>
+
+// Zoom calculation based on location specificity
+function calculateZoomForLocation(location: EventLocation): number {
+  if (location.placeId) return 12;        // Specific place
+  if (location.latitude && location.longitude) {
+    // Estimate based on location name
+    if (location.name.includes(',')) return 10;  // City, Country
+    return 6;  // Country or region
+  }
+  return 4;  // Fallback
+}
+```
+
+### 8.6 Tile Providers (Free Options)
+
+| Provider | Free Tier | Notes |
+|----------|-----------|-------|
+| **Stadia Maps** | 200k tiles/month | Good free tier, reliable |
+| **MapTiler** | 100k tiles/month | Requires API key |
+| **OpenFreeMap** | Unlimited | Community-hosted, may have slower performance |
+| **Self-hosted** | Unlimited | Can host own tiles with OpenMapTiles |
+
+**Recommended**: Start with Stadia Maps for development, evaluate self-hosting for production if usage grows.
+
+---
+
+## 9. Database Schema (Prisma)
 
 ```prisma
 model User {
@@ -767,9 +1061,9 @@ model Timeline {
   updatedAt   DateTime @updatedAt
   metadata    Json?
 
-  tracks       Track[]
-  events       TimelineEvent[]
-  chatMessages ChatMessage[]
+  tracks Track[]
+  events TimelineEvent[]
+  // Note: ChatMessages are ephemeral (session-only), not persisted
 
   @@index([ownerId])
 }
@@ -820,19 +1114,7 @@ model TimelineEvent {
   @@index([startDate])
 }
 
-model ChatMessage {
-  id                String   @id @default(uuid())
-  timelineId        String
-  timeline          Timeline @relation(fields: [timelineId], references: [id], onDelete: Cascade)
-  role              String
-  content           String   @db.Text
-  generatedEventIds String[] @default([])
-  status            String   @default("complete")
-  error             String?
-  createdAt         DateTime @default(now())
-
-  @@index([timelineId])
-}
+// Note: ChatMessage is NOT persisted to database (ephemeral, session-only)
 ```
 
 ---
@@ -1032,7 +1314,8 @@ src/
 │   │   │   ├── DetailPanel.tsx
 │   │   │   ├── EventDetail.tsx
 │   │   │   ├── EventLocation.tsx
-│   │   │   └── EventSources.tsx
+│   │   │   ├── EventSources.tsx
+│   │   │   └── MiniMap.tsx           # MapLibre GL JS wrapper
 │   │   └── hooks/
 │   │       └── useLearnMore.ts
 │   │
@@ -1058,6 +1341,8 @@ src/
 ├── lib/
 │   ├── api-client.ts
 │   ├── llm.ts                      # Claude API integration
+│   ├── map-style.ts                # MapLibre minimal style config
+│   ├── dates.ts                    # BCE/CE date utilities
 │   └── utils.ts
 │
 ├── types/
