@@ -241,11 +241,17 @@ function TimelineCanvasComponent({
       // If it was a click (not a drag) on a non-interactive element, clear focus
       if (!hasMoved.current && mouseDownTarget.current === e.target) {
         const target = e.target as HTMLElement;
+
+        // Check if the target is part of an event by looking for data-event-id in parents
+        const isPartOfEvent = target.closest('[data-event-id]') !== null;
+
         // Check if the click was on the background (svg or track container, not an event or button)
+        // Only clear focus if it's NOT part of an event
         if (
-          target.tagName === 'svg' ||
-          target.tagName === 'DIV' ||
-          target.classList.contains('timeline-background')
+          !isPartOfEvent &&
+          (target.tagName === 'svg' ||
+            target.tagName === 'DIV' ||
+            target.classList.contains('timeline-background'))
         ) {
           onClearFocus?.();
         }

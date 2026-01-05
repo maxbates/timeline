@@ -117,7 +117,7 @@ function EventNodeComponent({
     const bgY = y - laneHeight / 2;
 
     return (
-      <g>
+      <g data-event-id={event.id}>
         {/* Background rectangle for hover/focus */}
         {showBackground && (
           <rect
@@ -212,7 +212,7 @@ function EventNodeComponent({
   const bgY = y - laneHeight / 2;
 
   return (
-    <g>
+    <g data-event-id={event.id}>
       {/* Background rectangle for hover/focus */}
       {showBackground && (
         <rect

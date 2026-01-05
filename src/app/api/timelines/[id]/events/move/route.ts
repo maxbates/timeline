@@ -71,45 +71,67 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // Create new events for staged events that don't exist in DB yet
     const stagedEventIds = eventIds.filter((id) => !existingEventIds.has(id));
     if (stagedEventIds.length > 0 && stagedEvents) {
-      for (const eventId of stagedEventIds) {
+      // Geocode all events in parallel first
+      const geocodePromises = stagedEventIds.map(async (eventId) => {
         const stagedEvent = stagedEvents.find((e: { id: string }) => e.id === eventId);
-        if (stagedEvent) {
-          // Geocode location if it has a name but no coordinates
-          let location = stagedEvent.location;
-          if (location && !location.latitude && !location.longitude) {
-            console.log('Geocoding location for staged event:', location.name);
-            const geocoded = await geocodeLocation(location.name);
-            if (geocoded) {
-              location = {
-                ...location,
-                latitude: geocoded.latitude,
-                longitude: geocoded.longitude,
-              };
-              console.log('Geocoded successfully:', location);
-            } else {
-              console.warn('Failed to geocode location:', location.name);
-            }
-          }
+        if (!stagedEvent) return null;
 
-          const createdEvent = await prisma.timelineEvent.create({
-            data: {
-              timelineId,
-              trackId: targetTrackId,
-              title: stagedEvent.title,
-              description: stagedEvent.description,
-              longDescription: stagedEvent.longDescription || '',
-              type: stagedEvent.type,
-              startDate: stagedEvent.startDate,
-              endDate: stagedEvent.endDate,
-              datePrecision: stagedEvent.datePrecision,
-              location,
-              sources: stagedEvent.sources || [],
-              tags: stagedEvent.tags || [],
-              status: 'confirmed',
-            },
-          });
-          updatedEvents.push(createdEvent);
+        let location = stagedEvent.location;
+        if (location && !location.latitude && !location.longitude) {
+          console.log('Geocoding location for staged event:', location.name);
+          const geocoded = await geocodeLocation(location.name);
+          if (geocoded) {
+            location = {
+              ...location,
+              latitude: geocoded.latitude,
+              longitude: geocoded.longitude,
+            };
+            console.log('Geocoded successfully:', location);
+          } else {
+            console.warn('Failed to geocode location:', location.name);
+          }
         }
+
+        return {
+          ...stagedEvent,
+          location,
+        };
+      });
+
+      const geocodedEvents = (await Promise.all(geocodePromises)).filter(
+        (e): e is NonNullable<typeof e> => e !== null
+      );
+
+      // Batch create all events in a single query
+      if (geocodedEvents.length > 0) {
+        await prisma.timelineEvent.createMany({
+          data: geocodedEvents.map((stagedEvent) => ({
+            timelineId,
+            trackId: targetTrackId,
+            title: stagedEvent.title,
+            description: stagedEvent.description,
+            longDescription: stagedEvent.longDescription || '',
+            type: stagedEvent.type,
+            startDate: stagedEvent.startDate,
+            endDate: stagedEvent.endDate,
+            datePrecision: stagedEvent.datePrecision,
+            location: stagedEvent.location,
+            sources: stagedEvent.sources || [],
+            tags: stagedEvent.tags || [],
+            status: 'confirmed',
+          })),
+        });
+
+        // Fetch the created events (createMany doesn't return them)
+        const created = await prisma.timelineEvent.findMany({
+          where: {
+            timelineId,
+            trackId: targetTrackId,
+            title: { in: geocodedEvents.map((e) => e.title) },
+            startDate: { in: geocodedEvents.map((e) => e.startDate) },
+          },
+        });
+        updatedEvents.push(...created);
       }
     }
 

@@ -1,5 +1,7 @@
 # Timeline Viewer
 
+![Timeline Viewer](./media/Screenshot%202026-01-05%20at%2014.34.42.png)
+
 Interactive timeline visualization with AI-powered event generation using Claude.
 
 ## Features

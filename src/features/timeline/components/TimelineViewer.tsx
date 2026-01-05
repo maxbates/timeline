@@ -144,30 +144,79 @@ function TimelineViewerComponent(
     onEventSelect?.(focusedEvent);
   }, [focusedEvent, onEventSelect]);
 
-  // Auto-scroll to focused event's track
+  // Auto-scroll to focused event - ensure it's visible both vertically and horizontally
+  // Only runs when focusedEvent changes (not when viewport changes from panning)
   useEffect(() => {
-    if (!focusedEvent || !scrollContainerRef.current) return;
+    if (!focusedEvent || !scrollContainerRef.current || !bounds) return;
 
-    // Find the track element containing the focused event
-    const trackElement = scrollContainerRef.current.querySelector(
-      `[data-track-id="${focusedEvent.trackId}"]`
-    );
+    // Capture current viewport values to avoid stale closure
+    const currentViewStart = viewport.viewStart;
+    const currentViewEnd = viewport.viewEnd;
 
-    if (trackElement) {
-      // Scroll the track into view smoothly
-      trackElement.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-      });
-    }
+    // Wait for detail panel to render and layout to settle
+    const timeoutId = setTimeout(() => {
+      if (!scrollContainerRef.current) return;
+
+      // First, scroll the track header to the top of the viewer
+      const trackElement = scrollContainerRef.current.querySelector(
+        `[data-track-id="${focusedEvent.trackId}"]`
+      );
+
+      if (trackElement) {
+        trackElement.scrollIntoView({
+          behavior: 'auto',
+          block: 'start', // Position track at the top
+        });
+      }
+
+      // Now check if the event is visible in the viewport
+      const eventElement = scrollContainerRef.current.querySelector(
+        `[data-event-id="${focusedEvent.id}"]`
+      );
+
+      if (eventElement) {
+        const container = scrollContainerRef.current;
+        const containerRect = container.getBoundingClientRect();
+        const elementRect = eventElement.getBoundingClientRect();
+
+        // Check if event is fully visible vertically
+        const isVerticallyVisible =
+          elementRect.top >= containerRect.top && elementRect.bottom <= containerRect.bottom;
+
+        // If event is not visible, scroll to it
+        if (!isVerticallyVisible) {
+          eventElement.scrollIntoView({
+            behavior: 'auto',
+            block: 'center',
+          });
+        }
+      }
+
+      // Check if the event is horizontally visible and pan if needed
+      const eventDateValue = dateToNumericValue(focusedEvent.startDate);
+
+      // Check if event is outside the current viewport
+      const isVisible = eventDateValue >= currentViewStart && eventDateValue <= currentViewEnd;
+
+      if (!isVisible) {
+        // Pan to center the event in the viewport
+        const centerDate = numericValueToDate(eventDateValue, 'day');
+        panTo(centerDate);
+      }
+    }, 50);
+
+    return () => clearTimeout(timeoutId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedEvent]);
 
   // Handle event click
   const handleEventClick = useCallback(
     (eventId: string) => {
-      setFocusedEvent(focusedEventId === eventId ? null : eventId);
+      // Always set the focused event, don't toggle
+      // This prevents deselection if the same event is clicked during/after scroll
+      setFocusedEvent(eventId);
     },
-    [focusedEventId, setFocusedEvent]
+    [setFocusedEvent]
   );
 
   // Handle clear focus (clicking background)
