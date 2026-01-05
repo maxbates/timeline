@@ -8,6 +8,7 @@
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
+import { geocodeLocation } from '@/lib/geocoding';
 
 // Event creation schema
 const createEventSchema = z.object({
@@ -82,6 +83,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return Response.json({ error: 'Timeline not found' }, { status: 404 });
     }
 
+    // Geocode location if it has a name but no coordinates
+    let location = data.location;
+    if (location && !location.latitude && !location.longitude) {
+      console.log('Geocoding location:', location.name);
+      const geocoded = await geocodeLocation(location.name);
+      if (geocoded) {
+        location = {
+          ...location,
+          latitude: geocoded.latitude,
+          longitude: geocoded.longitude,
+        };
+        console.log('Geocoded successfully:', location);
+      } else {
+        console.warn('Failed to geocode location:', location.name);
+      }
+    }
+
     // Create event
     const event = await prisma.timelineEvent.create({
       data: {
@@ -94,7 +112,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         startDate: data.startDate,
         endDate: data.endDate,
         datePrecision: data.datePrecision,
-        location: data.location,
+        location,
         sources: data.sources,
         tags: data.tags || [],
         status: data.status,

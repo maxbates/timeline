@@ -74,58 +74,7 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Features */}
-      <section className="py-16 sm:py-24">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <h2 className="text-center text-2xl font-bold text-gray-900">Features</h2>
-          <div className="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-            <FeatureCard
-              icon={
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                  />
-                </svg>
-              }
-              title="AI-Powered Generation"
-              description="Generate timeline events with natural language. Just describe what you want and let AI create accurate historical events."
-            />
-            <FeatureCard
-              icon={
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"
-                  />
-                </svg>
-              }
-              title="Interactive Visualization"
-              description="Pan, zoom, and explore your timeline with smooth interactions. View events in detail with rich descriptions and sources."
-            />
-            <FeatureCard
-              icon={
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-                  />
-                </svg>
-              }
-              title="Share & Collaborate"
-              description="Share your timelines with anyone. Generate shareable links and make your timelines public or private."
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* Examples */}
+      {/* Public Timelines */}
       <section id="examples" className="bg-white py-16 sm:py-24">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <h2 className="text-center text-2xl font-bold text-gray-900">Public Timelines</h2>
@@ -162,26 +111,6 @@ export default async function Home() {
           <p>Timeline Viewer - Built with Next.js and Claude AI</p>
         </div>
       </footer>
-    </div>
-  );
-}
-
-function FeatureCard({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-6">
-      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-500">
-        {icon}
-      </div>
-      <h3 className="mt-4 text-lg font-semibold text-gray-900">{title}</h3>
-      <p className="mt-2 text-sm text-gray-600">{description}</p>
     </div>
   );
 }

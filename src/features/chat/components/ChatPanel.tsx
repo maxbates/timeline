@@ -16,7 +16,7 @@ import {
   useState,
   useCallback,
 } from 'react';
-import type { TimelineEvent, TimelineBounds, ChatContext } from '@/types';
+import type { TimelineBounds, ChatContext } from '@/types';
 import { useChat } from '../hooks/useChat';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
@@ -25,10 +25,11 @@ interface ChatPanelProps {
   timelineId: string;
   stagingTrackId?: string;
   bounds?: TimelineBounds;
-  focusedEvent?: TimelineEvent | null;
   eventCount?: number;
   onEventsGenerated?: (events: Partial<TimelineEvent>[]) => void;
   onEventClick?: (eventId: string) => void;
+  onLoadingChange?: (isLoading: boolean) => void;
+  disabled?: boolean;
   className?: string;
 }
 
@@ -41,10 +42,11 @@ function ChatPanelComponent(
     timelineId,
     stagingTrackId,
     bounds,
-    focusedEvent,
     eventCount = 0,
     onEventsGenerated,
     onEventClick,
+    onLoadingChange,
+    disabled = false,
     className = '',
   }: ChatPanelProps,
   ref: React.Ref<ChatPanelHandle>
@@ -62,6 +64,11 @@ function ChatPanelComponent(
     onEventsGenerated,
   });
 
+  // Notify parent of loading state changes
+  useEffect(() => {
+    onLoadingChange?.(isLoading);
+  }, [isLoading, onLoadingChange]);
+
   // Expose sendMessage to parent via ref
   useImperativeHandle(ref, () => ({
     sendMessage,
@@ -75,13 +82,10 @@ function ChatPanelComponent(
   // Handle sending a message
   const handleSend = useCallback(
     (content: string) => {
-      const context: ChatContext | undefined = focusedEvent
-        ? { focusedEventId: focusedEvent.id, action: 'learn_more' }
-        : undefined;
-
-      sendMessage(content, context);
+      // Always send without context - chat is for generating events only
+      sendMessage(content, undefined);
     },
-    [focusedEvent, sendMessage]
+    [sendMessage]
   );
 
   // Fetch suggestions
@@ -144,21 +148,12 @@ function ChatPanelComponent(
         )}
       </div>
 
-      {/* Context indicator */}
-      {focusedEvent && (
-        <div className="border-t border-gray-100 bg-blue-50 px-4 py-2">
-          <p className="text-xs text-blue-600">
-            Asking about: <span className="font-medium">{focusedEvent.title}</span>
-          </p>
-        </div>
-      )}
-
       {/* Input */}
       <ChatInput
         onSend={handleSend}
-        disabled={isLoading}
+        disabled={isLoading || disabled}
         placeholder={
-          focusedEvent ? `Ask about "${focusedEvent.title}"...` : 'Ask me to generate events...'
+          disabled ? 'Accept or reject staged events first...' : 'Ask me to generate events...'
         }
       />
     </div>

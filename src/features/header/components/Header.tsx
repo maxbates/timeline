@@ -8,6 +8,7 @@
  */
 
 import { memo, useState } from 'react';
+import Link from 'next/link';
 import type { Timeline } from '@/types';
 import { ShareDialog } from './ShareDialog';
 
@@ -29,7 +30,7 @@ function HeaderComponent({ timeline, onSave, isSaving = false, className = '' }:
         {/* Left: Logo and title */}
         <div className="flex items-center gap-4">
           {/* Logo */}
-          <div className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-70">
             <svg
               className="h-6 w-6 text-blue-500"
               fill="none"
@@ -44,7 +45,7 @@ function HeaderComponent({ timeline, onSave, isSaving = false, className = '' }:
               />
             </svg>
             <span className="text-lg font-semibold text-gray-900">Timeline</span>
-          </div>
+          </Link>
 
           {/* Timeline title */}
           {timeline && (

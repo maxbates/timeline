@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import type { TimelineEvent as PrismaEvent } from '@prisma/client';
+import { geocodeLocation } from '@/lib/geocoding';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -73,6 +74,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       for (const eventId of stagedEventIds) {
         const stagedEvent = stagedEvents.find((e: { id: string }) => e.id === eventId);
         if (stagedEvent) {
+          // Geocode location if it has a name but no coordinates
+          let location = stagedEvent.location;
+          if (location && !location.latitude && !location.longitude) {
+            console.log('Geocoding location for staged event:', location.name);
+            const geocoded = await geocodeLocation(location.name);
+            if (geocoded) {
+              location = {
+                ...location,
+                latitude: geocoded.latitude,
+                longitude: geocoded.longitude,
+              };
+              console.log('Geocoded successfully:', location);
+            } else {
+              console.warn('Failed to geocode location:', location.name);
+            }
+          }
+
           const createdEvent = await prisma.timelineEvent.create({
             data: {
               timelineId,
@@ -84,7 +102,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
               startDate: stagedEvent.startDate,
               endDate: stagedEvent.endDate,
               datePrecision: stagedEvent.datePrecision,
-              location: stagedEvent.location,
+              location,
               sources: stagedEvent.sources || [],
               tags: stagedEvent.tags || [],
               status: 'confirmed',

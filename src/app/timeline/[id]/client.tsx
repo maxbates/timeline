@@ -10,9 +10,9 @@
 import { useState, useCallback, useMemo, useRef } from 'react';
 import type { Timeline, TimelineEvent } from '@/types';
 import { Header } from '@/features/header';
-import { TimelineViewer } from '@/features/timeline';
+import { TimelineViewer, type TimelineViewerHandle } from '@/features/timeline';
 import { DetailPanel } from '@/features/detail-panel';
-import { ChatPanel, StagedEventsBar, type ChatPanelHandle } from '@/features/chat';
+import { ChatPanel, type ChatPanelHandle } from '@/features/chat';
 import { calculateTimelineBounds } from '@/features/timeline/utils/bounds';
 
 interface TimelineViewerClientProps {
@@ -23,7 +23,10 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
   const [timeline, setTimeline] = useState(initialTimeline);
   const [selectedEvent, setSelectedEvent] = useState<TimelineEvent | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isMovingEvents, setIsMovingEvents] = useState(false);
+  const [isChatLoading, setIsChatLoading] = useState(false);
   const chatPanelRef = useRef<ChatPanelHandle>(null);
+  const timelineViewerRef = useRef<TimelineViewerHandle>(null);
 
   // Get staged events
   const stagedEvents = useMemo(
@@ -35,12 +38,21 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
   const stagingTrackId = `staging_${timeline.id}`;
 
   // Create timeline with dynamic staging track (client-side only, not persisted)
+  // The staging track should ALWAYS be present, but TimelineCanvas will hide it when empty
   const timelineWithStaging = useMemo(() => {
     // Check if we already have a staging track
     const hasStagingTrack = timeline.tracks.some((t) => t.type === 'staging');
 
-    // Only add staging track if we have staged events and no staging track exists
-    if (stagedEvents.length > 0 && !hasStagingTrack) {
+    console.log('timelineWithStaging recalculating:', {
+      stagedEventsCount: stagedEvents.length,
+      hasStagingTrack,
+      stagingTrackId,
+      timelineTracks: timeline.tracks.map((t) => ({ id: t.id, type: t.type })),
+    });
+
+    // If staging track doesn't exist, add it
+    if (!hasStagingTrack) {
+      console.log('Adding staging track with ID:', stagingTrackId);
       return {
         ...timeline,
         tracks: [
@@ -58,8 +70,10 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
       };
     }
 
+    // Staging track already exists, return timeline as-is
+    console.log('Staging track already exists, returning timeline as-is');
     return timeline;
-  }, [timeline, stagedEvents.length, stagingTrackId]);
+  }, [timeline, stagingTrackId]);
 
   // Calculate bounds
   const bounds = useMemo(
@@ -93,12 +107,52 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
   );
 
   // Handle events generated from chat
-  const handleEventsGenerated = useCallback((events: Partial<TimelineEvent>[]) => {
-    setTimeline((prev) => ({
-      ...prev,
-      events: [...prev.events, ...(events as TimelineEvent[])],
-    }));
-  }, []);
+  const handleEventsGenerated = useCallback(
+    (events: Partial<TimelineEvent>[]) => {
+      const newEventIds: string[] = [];
+
+      setTimeline((prev) => {
+        const newEvents = events.map((e) => ({
+          ...e,
+          trackId: e.trackId || stagingTrackId, // Ensure trackId is set
+          status: (e.status || 'staged') as 'staged' | 'confirmed',
+        })) as TimelineEvent[];
+
+        // Store IDs for zoom
+        newEventIds.push(...newEvents.map((e) => e.id));
+
+        console.log('Adding staged events:', {
+          count: newEvents.length,
+          expectedTrackId: stagingTrackId,
+          newEvents: newEvents.map((e) => ({
+            id: e.id,
+            title: e.title,
+            trackId: e.trackId,
+            status: e.status,
+          })),
+          allEventsAfter: [...prev.events, ...newEvents].map((e) => ({
+            id: e.id,
+            title: e.title,
+            trackId: e.trackId,
+            status: e.status,
+          })),
+        });
+
+        return {
+          ...prev,
+          events: [...prev.events, ...newEvents],
+        };
+      });
+
+      // Auto-zoom to new events after a short delay to let state update
+      setTimeout(() => {
+        if (newEventIds.length > 0) {
+          timelineViewerRef.current?.zoomToFitEvents(newEventIds);
+        }
+      }, 100);
+    },
+    [stagingTrackId]
+  );
 
   // Handle manual event creation
   const handleCreateEvent = useCallback(
@@ -143,90 +197,48 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
     }
   }, [timeline]);
 
-  // Handle add to main track
-  const handleAddToMainTrack = useCallback(async () => {
+  // Handle accept staged events - always creates a new track
+  const handleAcceptStaged = useCallback(async () => {
     const eventIds = stagedEvents.map((e) => e.id);
-    if (eventIds.length === 0) return;
+    if (eventIds.length === 0 || isMovingEvents) return;
 
-    const mainTrack = timeline.tracks.find((t) => t.type === 'main');
-    if (!mainTrack) return;
-
+    setIsMovingEvents(true);
     try {
-      const response = await fetch(`/api/timelines/${timeline.id}/events/move`, {
+      // Pick the next available color
+      const availableColors: Array<'blue' | 'red' | 'purple' | 'orange' | 'pink' | 'teal'> = [
+        'blue',
+        'red',
+        'purple',
+        'orange',
+        'pink',
+        'teal',
+      ];
+      const usedColors = timeline.tracks.filter((t) => t.type !== 'staging').map((t) => t.color);
+      const nextColor = availableColors.find((c) => !usedColors.includes(c)) || availableColors[0];
+
+      // Always create a new track
+      const trackResponse = await fetch(`/api/timelines/${timeline.id}/tracks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          eventIds,
-          targetTrackId: mainTrack.id,
-          events: stagedEvents, // Send the full event data for client-side staged events
+          name: 'New Track',
+          type: 'custom',
+          color: nextColor,
+          order: timeline.tracks.filter((t) => t.type !== 'staging').length, // Don't count staging track
         }),
       });
 
-      if (response.ok) {
-        const { events } = await response.json();
-        setTimeline((prev) => ({
-          ...prev,
-          events: [
-            // Remove old staged events (client-side only)
-            ...prev.events.filter((e) => !eventIds.includes(e.id)),
-            // Add new confirmed events from database
-            ...events,
-          ],
-        }));
-      }
-    } catch (error) {
-      console.error('Failed to move events to main track:', error);
-    }
-  }, [timeline.id, timeline.tracks, stagedEvents]);
+      if (!trackResponse.ok) return;
 
-  // Handle add to new track
-  const handleAddToNewTrack = useCallback(async () => {
-    const eventIds = stagedEvents.map((e) => e.id);
-    if (eventIds.length === 0) return;
+      const newTrack = await trackResponse.json();
 
-    try {
-      // Check if there's already an empty "New Track"
-      const existingNewTrack = timeline.tracks.find(
-        (t) => t.name === 'New Track' && t.type === 'custom'
-      );
-
-      // Check if this track is empty (has no confirmed events)
-      const trackHasEvents = existingNewTrack
-        ? timeline.events.some((e) => e.trackId === existingNewTrack.id && e.status === 'confirmed')
-        : false;
-
-      let targetTrackId: string;
-      let newTrack = null;
-
-      if (existingNewTrack && !trackHasEvents) {
-        // Reuse existing empty "New Track"
-        targetTrackId = existingNewTrack.id;
-      } else {
-        // Create new track
-        const trackResponse = await fetch(`/api/timelines/${timeline.id}/tracks`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: 'New Track',
-            type: 'custom',
-            color: 'purple',
-            order: timeline.tracks.length,
-          }),
-        });
-
-        if (!trackResponse.ok) return;
-
-        newTrack = await trackResponse.json();
-        targetTrackId = newTrack.id;
-      }
-
-      // Move events to target track
+      // Move events to new track
       const moveResponse = await fetch(`/api/timelines/${timeline.id}/events/move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           eventIds,
-          targetTrackId,
+          targetTrackId: newTrack.id,
           events: stagedEvents, // Send the full event data for client-side staged events
         }),
       });
@@ -235,7 +247,7 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
         const { events } = await moveResponse.json();
         setTimeline((prev) => ({
           ...prev,
-          tracks: newTrack ? [...prev.tracks, newTrack] : prev.tracks,
+          tracks: [...prev.tracks, newTrack],
           events: [
             // Remove old staged events (client-side only)
             ...prev.events.filter((e) => !eventIds.includes(e.id)),
@@ -245,15 +257,18 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
         }));
       }
     } catch (error) {
-      console.error('Failed to create new track and move events:', error);
+      console.error('Failed to accept staged events:', error);
+    } finally {
+      setIsMovingEvents(false);
     }
-  }, [timeline.id, timeline.tracks, timeline.events, stagedEvents]);
+  }, [timeline.id, timeline.tracks, stagedEvents, isMovingEvents]);
 
-  // Handle reject all staged events
-  const handleRejectAll = useCallback(async () => {
+  // Handle reject staged events
+  const handleRejectStaged = useCallback(async () => {
     const eventIds = stagedEvents.map((e) => e.id);
-    if (eventIds.length === 0) return;
+    if (eventIds.length === 0 || isMovingEvents) return;
 
+    setIsMovingEvents(true);
     try {
       const response = await fetch(`/api/timelines/${timeline.id}/events/reject`, {
         method: 'POST',
@@ -269,20 +284,10 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
       }
     } catch (error) {
       console.error('Failed to reject events:', error);
+    } finally {
+      setIsMovingEvents(false);
     }
-  }, [timeline.id, stagedEvents]);
-
-  // Handle learn more
-  const handleLearnMore = useCallback(() => {
-    if (!selectedEvent || !chatPanelRef.current) return;
-
-    // Send a message to the chat to learn more about the selected event
-    const message = `Tell me more about "${selectedEvent.title}". Provide additional details and context in a couple of paragraphs.`;
-    chatPanelRef.current.sendMessage(message, {
-      focusedEventId: selectedEvent.id,
-      action: 'learn_more',
-    });
-  }, [selectedEvent]);
+  }, [timeline.id, stagedEvents, isMovingEvents]);
 
   // Handle update event
   const handleUpdateEvent = useCallback(
@@ -356,14 +361,85 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
     [timeline.id]
   );
 
-  // Handle chat about track
-  const handleChatAboutTrack = useCallback((trackName: string) => {
-    if (!chatPanelRef.current) return;
+  // Handle track color change
+  const handleTrackColorChange = useCallback(
+    async (trackId: string, newColor: string) => {
+      try {
+        const response = await fetch(`/api/timelines/${timeline.id}/tracks/${trackId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ color: newColor }),
+        });
 
-    // Send a message to the chat to generate more events for this track
-    const message = `Generate more events for the "${trackName}" track that fit the timeline's theme and time period.`;
-    chatPanelRef.current.sendMessage(message);
-  }, []);
+        if (response.ok) {
+          const updatedTrack = await response.json();
+          setTimeline((prev) => ({
+            ...prev,
+            tracks: prev.tracks.map((t) => (t.id === trackId ? updatedTrack : t)),
+          }));
+        }
+      } catch (error) {
+        console.error('Failed to update track color:', error);
+      }
+    },
+    [timeline.id]
+  );
+
+  // Handle track deletion
+  const handleDeleteTrack = useCallback(
+    async (trackId: string) => {
+      try {
+        const response = await fetch(`/api/timelines/${timeline.id}/tracks/${trackId}`, {
+          method: 'DELETE',
+        });
+
+        if (response.ok) {
+          setTimeline((prev) => ({
+            ...prev,
+            tracks: prev.tracks.filter((t) => t.id !== trackId),
+            // Also remove events from this track
+            events: prev.events.filter((e) => e.trackId !== trackId),
+          }));
+        }
+      } catch (error) {
+        console.error('Failed to delete track:', error);
+      }
+    },
+    [timeline.id]
+  );
+
+  // Handle chat about track
+  const handleChatAboutTrack = useCallback(
+    (trackName: string) => {
+      if (!chatPanelRef.current) return;
+
+      // Find the track and get its events
+      const track = timeline.tracks.find((t) => t.name === trackName);
+      if (!track) return;
+
+      const trackEvents = timeline.events.filter(
+        (e) => e.trackId === track.id && e.status === 'confirmed'
+      );
+
+      // Build a message that includes timeline context and existing events
+      let message = `Generate more events for the "${trackName}" track.\n\n`;
+      message += `Timeline: "${timeline.title}"\n`;
+      message += `Description: ${timeline.description}\n\n`;
+
+      if (trackEvents.length > 0) {
+        message += `Existing events in this track:\n`;
+        trackEvents.forEach((event) => {
+          message += `- ${event.title} (${event.startDate})\n`;
+        });
+        message += `\nGenerate additional events that complement and expand on these existing events, maintaining the same theme and fitting the timeline's overall topic.`;
+      } else {
+        message += `This track is currently empty. Generate relevant events that fit the timeline's theme and description.`;
+      }
+
+      chatPanelRef.current.sendMessage(message);
+    },
+    [timeline.tracks, timeline.events, timeline.title, timeline.description]
+  );
 
   // Handle create track
   const handleCreateTrack = useCallback(async () => {
@@ -413,16 +489,6 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
       {/* Header */}
       <Header timeline={timelineWithStaging} onSave={handleSave} isSaving={isSaving} />
 
-      {/* Staged events bar */}
-      {stagedEvents.length > 0 && (
-        <StagedEventsBar
-          stagedEvents={stagedEvents}
-          onAddToMainTrack={handleAddToMainTrack}
-          onAddToNewTrack={handleAddToNewTrack}
-          onRejectAll={handleRejectAll}
-        />
-      )}
-
       {/* Main content - two column layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Timeline + Detail stacked */}
@@ -430,12 +496,18 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
           {/* Timeline */}
           <main className={`overflow-hidden ${selectedEvent ? 'min-h-[300px] flex-1' : 'flex-1'}`}>
             <TimelineViewer
+              ref={timelineViewerRef}
               timeline={timelineWithStaging}
               onEventSelect={handleEventSelect}
               onCreateEvent={handleCreateEvent}
               onCreateTrack={handleCreateTrack}
               onTrackNameChange={handleTrackNameChange}
+              onTrackColorChange={handleTrackColorChange}
+              onTrackDelete={handleDeleteTrack}
               onChatAboutTrack={handleChatAboutTrack}
+              onAcceptStaged={handleAcceptStaged}
+              onRejectStaged={handleRejectStaged}
+              isAcceptingStaged={isMovingEvents || isChatLoading}
               className="h-full"
             />
           </main>
@@ -446,7 +518,6 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
               <DetailPanel
                 event={selectedEvent}
                 track={selectedTrack}
-                onLearnMore={handleLearnMore}
                 onUpdateEvent={handleUpdateEvent}
                 onDelete={handleDeleteEvent}
                 className="h-full"
@@ -462,10 +533,11 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
             timelineId={timeline.id}
             stagingTrackId={stagingTrackId}
             bounds={bounds || undefined}
-            focusedEvent={selectedEvent}
             eventCount={timeline.events.filter((e) => e.status === 'confirmed').length}
             onEventsGenerated={handleEventsGenerated}
             onEventClick={handleEventClick}
+            onLoadingChange={setIsChatLoading}
+            disabled={stagedEvents.length > 0}
             className="h-full"
           />
         </aside>

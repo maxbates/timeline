@@ -7,6 +7,7 @@
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
+import { geocodeLocation } from '@/lib/geocoding';
 
 // Request validation schema for updates
 const updateEventSchema = z.object({
@@ -61,6 +62,22 @@ export async function PATCH(
 
     if (!event) {
       return Response.json({ error: 'Event not found' }, { status: 404 });
+    }
+
+    // Geocode location if it's being updated and has a name but no coordinates
+    if (updates.location && !updates.location.latitude && !updates.location.longitude) {
+      console.log('Geocoding location:', updates.location.name);
+      const geocoded = await geocodeLocation(updates.location.name);
+      if (geocoded) {
+        updates.location = {
+          ...updates.location,
+          latitude: geocoded.latitude,
+          longitude: geocoded.longitude,
+        };
+        console.log('Geocoded successfully:', updates.location);
+      } else {
+        console.warn('Failed to geocode location:', updates.location.name);
+      }
     }
 
     // Update the event
