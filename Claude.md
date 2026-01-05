@@ -5,12 +5,14 @@
 A timeline visualization application with LLM integration for generating and managing events over time. Think GarageBand-style visual timelines with AI-powered content generation.
 
 ### Core Features (v1)
+
 - Interactive timeline visualization with rich visuals
 - LLM integration (Claude API) for generating timeline events as JSON
 - Save and share timelines
 - Side-by-side timeline viewing
 
 ### Future Features (Stretch Goals)
+
 - Additional visualizations (maps, custom widgets)
 - Multi-visualization coordination
 - LLM-powered timeline recommendations and discovery
@@ -19,6 +21,7 @@ A timeline visualization application with LLM integration for generating and man
 ## Technology Stack
 
 ### Frontend
+
 - **TypeScript**: Strict type safety throughout the application
 - **React 18+**: UI component library
 - **Next.js 15** (App Router): Full-stack React framework with SSR/SSG capabilities
@@ -28,6 +31,7 @@ A timeline visualization application with LLM integration for generating and man
 - **Zustand** or **Jotai**: Client state management (if needed)
 
 ### Backend
+
 - **Next.js API Routes** or **tRPC**: Type-safe API layer
 - **Anthropic Claude API**: LLM integration for timeline generation
 - **PostgreSQL**: Primary database (with Supabase or similar for hosting)
@@ -35,12 +39,14 @@ A timeline visualization application with LLM integration for generating and man
 - **NextAuth.js**: Authentication (when needed)
 
 ### Testing
+
 - **Vitest**: Unit and integration testing (faster Jest alternative)
 - **Playwright**: End-to-end testing with browser automation
 - **Testing Library**: React component testing
 - **MSW (Mock Service Worker)**: API mocking for tests
 
 ### Development Tools
+
 - **pnpm**: Fast, disk-efficient package manager
 - **ESLint**: Code linting with TypeScript support
 - **Prettier**: Code formatting
@@ -50,6 +56,7 @@ A timeline visualization application with LLM integration for generating and man
 ## Architecture Principles
 
 ### 1. Interface-Driven Development
+
 All major features should be defined by TypeScript interfaces and types first. This creates clear contracts between modules.
 
 ```typescript
@@ -72,6 +79,7 @@ interface Timeline {
 ```
 
 ### 2. Modular Organization
+
 Code should be organized by feature/domain, not by technical layer:
 
 ```
@@ -93,12 +101,14 @@ src/
 ```
 
 ### 3. Type Safety Throughout
+
 - Use TypeScript strict mode
 - Define Zod schemas for runtime validation (API boundaries, user input)
 - Use discriminated unions for state machines and complex states
 - Prefer type inference where reasonable, explicit types for public APIs
 
 ### 4. Testable Code
+
 - Every feature must have corresponding tests
 - Write tests alongside implementation, not after
 - Aim for high coverage of business logic
@@ -107,22 +117,26 @@ src/
 ## Testing Strategy
 
 ### Unit Tests (Vitest)
+
 - All utility functions
 - Business logic and data transformations
 - React hooks
 - Pure components
 
 ### Integration Tests (Vitest + Testing Library)
+
 - Component interactions
 - API route handlers
 - Database operations (with test DB)
 
 ### End-to-End Tests (Playwright)
+
 - Critical user journeys (creating timeline, generating with LLM, sharing)
 - Cross-browser compatibility
 - Visual regression testing (optional)
 
 ### Test Organization
+
 - Place tests next to the code they test: `feature.test.ts` alongside `feature.ts`
 - Use descriptive test names: `it('should generate timeline events from LLM prompt')`
 - Follow AAA pattern: Arrange, Act, Assert
@@ -130,6 +144,7 @@ src/
 ## Development Workflow
 
 ### 1. Feature Development
+
 1. Define TypeScript interfaces/types for the feature
 2. Write tests based on the interface contracts
 3. Implement the feature to pass tests
@@ -137,7 +152,9 @@ src/
 5. Code review and refinement
 
 ### 2. Commit Guidelines
+
 Use Conventional Commits format:
+
 - `feat:` new features
 - `fix:` bug fixes
 - `docs:` documentation changes
@@ -146,6 +163,7 @@ Use Conventional Commits format:
 - `chore:` maintenance tasks
 
 ### 3. Branch Strategy
+
 - Main branch: `main` (protected)
 - Feature branches: `claude/feature-name-{sessionId}`
 - Always create PR for review before merging
@@ -153,12 +171,14 @@ Use Conventional Commits format:
 ## Initial Setup Checklist
 
 ### 1. Initialize Next.js Project
+
 ```bash
 pnpm create next-app@latest timeline-app --typescript --tailwind --app --use-pnpm
 cd timeline-app
 ```
 
 ### 2. Install Core Dependencies
+
 ```bash
 # Type safety and validation
 pnpm add zod
@@ -185,6 +205,7 @@ pnpm add -D husky lint-staged
 ```
 
 ### 3. Initialize Testing Tools
+
 ```bash
 # Playwright setup
 pnpm playwright install
@@ -194,6 +215,7 @@ pnpm prisma init
 ```
 
 ### 4. Configure Development Environment
+
 - Set up `.env.local` with API keys (Claude API key)
 - Configure Vitest in `vitest.config.ts`
 - Configure Playwright in `playwright.config.ts`
@@ -201,6 +223,7 @@ pnpm prisma init
 - Initialize Husky for pre-commit hooks
 
 ### 5. Create Initial Project Structure
+
 ```bash
 mkdir -p src/features src/lib src/types
 ```
@@ -208,24 +231,28 @@ mkdir -p src/features src/lib src/types
 ## Code Quality Standards
 
 ### TypeScript
+
 - Enable strict mode in `tsconfig.json`
 - No `any` types without explicit justification
 - Use `unknown` for truly unknown types
 - Prefer `interface` for object shapes, `type` for unions/intersections
 
 ### React
+
 - Functional components only
 - Custom hooks for reusable logic
 - Prefer composition over prop drilling
 - Use React Server Components where appropriate (Next.js App Router)
 
 ### Styling
+
 - Tailwind utility classes for most styling
 - CSS modules for complex component-specific styles
 - Mobile-first responsive design
 - Accessible color contrast and interactions
 
 ### Performance
+
 - Use React.memo() judiciously (measure first)
 - Implement proper loading states
 - Optimize bundle size (check with `pnpm analyze`)
@@ -234,6 +261,7 @@ mkdir -p src/features src/lib src/types
 ## LLM Integration Guidelines
 
 ### Claude API Usage
+
 - Store API keys in environment variables
 - Implement rate limiting and error handling
 - Cache responses when appropriate
@@ -241,6 +269,7 @@ mkdir -p src/features src/lib src/types
 - Define clear JSON schemas for LLM outputs (use Zod)
 
 ### Example Timeline Generation Prompt Structure
+
 ```typescript
 interface TimelineGenerationRequest {
   topic: string;
@@ -256,6 +285,7 @@ interface TimelineGenerationRequest {
 Playwright provides powerful browser automation for testing. You'll interact with it programmatically to write tests.
 
 ### Setting Up Playwright Tests
+
 ```typescript
 import { test, expect } from '@playwright/test';
 
@@ -270,7 +300,9 @@ test('user can create a new timeline', async ({ page }) => {
 ```
 
 ### Using Claude for Test Development
+
 Claude can help you write Playwright tests by:
+
 1. Understanding your UI requirements
 2. Generating test scenarios
 3. Writing test code with proper selectors
@@ -279,6 +311,7 @@ Claude can help you write Playwright tests by:
 ## Questions and Clarifications
 
 Before starting implementation, consider these questions:
+
 - [ ] What date range should timelines support? (historical, future, both?)
 - [ ] Should timeline events support hierarchies or dependencies?
 - [ ] What sharing permissions model? (public link, specific users, etc.)

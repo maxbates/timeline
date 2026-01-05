@@ -1,0 +1,8 @@
+packages:
+  - .
+
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver
+
+pnpmApprovedBuilds: '@prisma/engines,esbuild,msw,prisma'

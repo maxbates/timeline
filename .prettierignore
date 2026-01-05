@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+pnpm-lock.yaml
+
+# Build output
+.next/
+out/
+build/
+dist/
+
+# Test coverage
+coverage/
+playwright-report/
+test-results/
+
+# Generated files
+next-env.d.ts
+*.generated.ts
+
+# Prisma
+prisma/migrations/

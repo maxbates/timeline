@@ -1,0 +1,91 @@
+// Prisma Schema for Timeline Viewer
+// Based on Spec.md Section 9: Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  timelines   Timeline[]
+  preferences Json?
+}
+
+model Timeline {
+  id          String   @id @default(uuid())
+  title       String   @db.VarChar(100)
+  description String?  @db.VarChar(500)
+  visibility  String   @default("private") // 'private' | 'unlisted' | 'public'
+  ownerId     String?  // Optional until auth is implemented
+  owner       User?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  metadata    Json?
+
+  tracks Track[]
+  events TimelineEvent[]
+  // Note: ChatMessages are ephemeral (session-only), not persisted
+
+  @@index([ownerId])
+}
+
+model Track {
+  id         String   @id @default(uuid())
+  timelineId String
+  timeline   Timeline @relation(fields: [timelineId], references: [id], onDelete: Cascade)
+  name       String   @db.VarChar(50)
+  type       String   @default("main") // 'main' | 'staging' | 'custom'
+  color      String   @default("blue") // TrackColor
+  order      Int      @default(0)
+  visible    Boolean  @default(true)
+  metadata   Json?
+
+  events TimelineEvent[]
+
+  @@index([timelineId])
+}
+
+model TimelineEvent {
+  id              String   @id @default(uuid())
+  timelineId      String
+  timeline        Timeline @relation(fields: [timelineId], references: [id], onDelete: Cascade)
+  trackId         String
+  track           Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  title           String   @db.VarChar(100)
+  description     String   @db.VarChar(500)
+  longDescription String   @db.Text
+
+  // Dates stored as strings to support BCE dates (Extended ISO 8601)
+  type            String   @default("point") // 'point' | 'span'
+  startDate       String   // Extended ISO 8601 string (e.g., "-0753-04-21")
+  endDate         String?  // Required for span events
+  datePrecision   String   @default("day") // 'year' | 'month' | 'day' | 'datetime'
+
+  location        Json?    // EventLocation
+  sources         Json     @default("[]") // EventSource[]
+  status          String   @default("confirmed") // 'confirmed' | 'staged'
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  metadata        Json?
+  tags            String[] @default([])
+
+  @@index([timelineId])
+  @@index([trackId])
+  @@index([startDate])
+}
+
+// Note: ChatMessage is NOT persisted to database (ephemeral, session-only)
