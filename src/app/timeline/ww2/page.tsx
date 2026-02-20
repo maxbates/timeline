@@ -7,6 +7,9 @@
 import { seedWW2Timeline } from '@/lib/seeds/ww2';
 import { TimelineViewerClient } from '../[id]/client';
 
+// Force dynamic rendering to avoid build-time database access
+export const dynamic = 'force-dynamic';
+
 export default async function WW2TimelinePage() {
   // Seed or load the WW2 timeline
   const timeline = await seedWW2Timeline();

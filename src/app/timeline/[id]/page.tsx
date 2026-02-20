@@ -10,6 +10,9 @@ import type { Metadata } from 'next';
 import { prisma } from '@/lib/db';
 import { TimelineViewerClient } from './client';
 
+// Force dynamic rendering to avoid build-time database access
+export const dynamic = 'force-dynamic';
+
 interface PageProps {
   params: Promise<{ id: string }>;
 }
