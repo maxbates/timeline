@@ -1,5 +1,7 @@
 # Timeline Viewer
 
+![Timeline Viewer](./media/Screenshot%202026-01-05%20at%2014.34.42.png)
+
 Interactive timeline visualization with AI-powered event generation using Claude.
 
 ## Features
@@ -42,19 +44,18 @@ Copy the example environment file:
 cp .env.local.example .env.local
 ```
 
-Edit `.env.local` with your values:
+Edit `.env.local` with your database configuration:
 
 ```env
 # Database (PostgreSQL)
 DATABASE_URL="postgresql://user:password@localhost:5432/timeline?schema=public"
 DIRECT_URL="postgresql://user:password@localhost:5432/timeline?schema=public"
 
-# Anthropic API
-ANTHROPIC_API_KEY="sk-ant-..."
-
 # App URL (for sharing)
 NEXT_PUBLIC_BASE_URL="http://localhost:3000"
 ```
+
+**Note**: The Anthropic API key is now configured in the app's Settings UI (stored locally in your browser), not as an environment variable.
 
 ### 3. Set up the database
 
@@ -128,12 +129,13 @@ pnpm format       # Format code with Prettier
 
 ## Usage
 
-1. **Create a Timeline**: Click "Create Timeline" and give it a name
-2. **Generate Events**: Use the chat panel to ask Claude to generate events
+1. **Set API Key**: Click the key icon in the header to set your Anthropic API key (stored locally in your browser)
+2. **Create a Timeline**: Click "Create Timeline" and give it a name
+3. **Generate Events**: Use the chat panel to ask Claude to generate events
    - Example: "Add key events from the Roman Republic"
-3. **Review Events**: AI-generated events appear as "staged" - accept or reject them
-4. **Explore**: Click events to view details, pan/zoom the timeline
-5. **Share**: Use the Share button to get a shareable link
+4. **Review Events**: AI-generated events appear as "staged" - accept or reject them
+5. **Explore**: Click events to view details, pan/zoom the timeline
+6. **Share**: Use the Share button to get a shareable link
 
 ## Keyboard Shortcuts
 

@@ -15,6 +15,7 @@ interface UseChatOptions {
   timelineId: string;
   stagingTrackId?: string;
   bounds?: TimelineBounds;
+  apiKey?: string;
   onEventsGenerated?: (events: Partial<TimelineEvent>[]) => void;
 }
 
@@ -40,6 +41,7 @@ export function useChat({
   timelineId,
   stagingTrackId,
   bounds,
+  apiKey,
   onEventsGenerated,
 }: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -87,6 +89,7 @@ export function useChat({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
           },
           body: JSON.stringify({
             message: content,
@@ -141,13 +144,14 @@ export function useChat({
                   // Single event streamed in
                   streamedEvents.push(parsed.event);
                   onEventsGenerated?.([parsed.event]);
-                  // Update message to show progress
+                  // Update message to show the streamed events (will be displayed by ChatMessage component)
                   setMessages((prev) =>
                     prev.map((m) =>
                       m.id === assistantMessage.id
                         ? {
                             ...m,
-                            content: `Generating... (${streamedEvents.length} event${streamedEvents.length === 1 ? '' : 's'})`,
+                            content: '', // Clear content, events will be shown via generatedEvents
+                            generatedEvents: [...streamedEvents], // Update with all events so far
                           }
                         : m
                     )
@@ -168,11 +172,9 @@ export function useChat({
                     )
                   );
                 } else if (parsed.type === 'events') {
+                  // Just store the event IDs - events are already in streamedEvents from individual 'event' messages
                   generatedEventIds = parsed.eventIds || [];
-                  // Store events data for display
-                  if (parsed.events) {
-                    streamedEvents.push(...parsed.events);
-                  }
+                  // Don't push events again - they were already added when streamed individually
                 }
               } catch {
                 // Ignore parse errors for partial chunks
@@ -187,7 +189,8 @@ export function useChat({
             m.id === assistantMessage.id
               ? {
                   ...m,
-                  content: fullContent || 'Events have been added to your timeline.',
+                  // Only show text content if there's actual text, otherwise just show events
+                  content: fullContent || '',
                   status: 'complete',
                   generatedEventIds: generatedEventIds.length > 0 ? generatedEventIds : undefined,
                   generatedEvents: streamedEvents.length > 0 ? streamedEvents : undefined,
@@ -222,7 +225,7 @@ export function useChat({
         abortControllerRef.current = null;
       }
     },
-    [timelineId, stagingTrackId, bounds, onEventsGenerated]
+    [timelineId, stagingTrackId, bounds, apiKey, onEventsGenerated]
   );
 
   /**

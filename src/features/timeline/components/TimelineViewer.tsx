@@ -8,7 +8,15 @@
  * Based on Spec.md Section 2.2: Component Hierarchy
  */
 
-import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
+import {
+  useMemo,
+  useCallback,
+  useState,
+  useEffect,
+  useRef,
+  forwardRef,
+  useImperativeHandle,
+} from 'react';
 import type { Timeline, TimelineEvent } from '@/types';
 import { TimelineCanvas } from './TimelineCanvas';
 import { EventTooltip } from './EventTooltip';
@@ -16,6 +24,11 @@ import { CreateEventDialog } from './CreateEventDialog';
 import { calculateTimelineBounds } from '../utils/bounds';
 import { useTimelineViewport } from '../hooks/useTimelineViewport';
 import { useEventFocus } from '../hooks/useEventFocus';
+import { dateToNumericValue, numericValueToDate } from '@/lib/dates';
+
+export interface TimelineViewerHandle {
+  zoomToFitEvents: (eventIds: string[]) => void;
+}
 
 interface TimelineViewerProps {
   timeline: Timeline;
@@ -23,19 +36,32 @@ interface TimelineViewerProps {
   onCreateEvent?: (event: Partial<TimelineEvent>) => void;
   onCreateTrack?: () => void;
   onTrackNameChange?: (trackId: string, newName: string) => void;
+  onTrackColorChange?: (trackId: string, newColor: string) => void;
+  onTrackDelete?: (trackId: string) => void;
   onChatAboutTrack?: (trackName: string) => void;
+  onAcceptStaged?: () => void;
+  onRejectStaged?: () => void;
+  isAcceptingStaged?: boolean;
   className?: string;
 }
 
-export function TimelineViewer({
-  timeline,
-  onEventSelect,
-  onCreateEvent,
-  onCreateTrack,
-  onTrackNameChange,
-  onChatAboutTrack,
-  className = '',
-}: TimelineViewerProps) {
+function TimelineViewerComponent(
+  {
+    timeline,
+    onEventSelect,
+    onCreateEvent,
+    onCreateTrack,
+    onTrackNameChange,
+    onTrackColorChange,
+    onTrackDelete,
+    onChatAboutTrack,
+    onAcceptStaged,
+    onRejectStaged,
+    isAcceptingStaged = false,
+    className = '',
+  }: TimelineViewerProps,
+  ref: React.Ref<TimelineViewerHandle>
+) {
   // Ref to the scrollable timeline container
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -43,20 +69,61 @@ export function TimelineViewer({
   const bounds = useMemo(() => calculateTimelineBounds(timeline.events), [timeline.events]);
 
   // Viewport state (zoom, pan)
-  const {
-    dateToX,
-    zoomIn,
-    zoomOut,
-    resetZoom,
-    pan,
-    viewport: _viewport,
-  } = useTimelineViewport({ bounds });
+  const { dateToX, zoomIn, zoomOut, resetZoom, pan, viewport, zoomTo, panTo, visibleRange } =
+    useTimelineViewport({ bounds });
 
   // Event focus state
   const { focusedEventId, hoveredEventId, setFocusedEvent, setHoveredEvent } = useEventFocus();
 
   // Tooltip position state
   const [tooltipPosition, _setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
+
+  // Expose zoom controls to parent via ref
+  useImperativeHandle(
+    ref,
+    () => ({
+      zoomToFitEvents: (eventIds: string[]) => {
+        if (eventIds.length === 0 || !bounds) return;
+
+        // Get the events
+        const events = timeline.events.filter((e) => eventIds.includes(e.id));
+        if (events.length === 0) return;
+
+        // Calculate date range of events
+        const eventValues = events.map((e) => dateToNumericValue(e.startDate));
+        const minDateValue = Math.min(...eventValues);
+        const maxDateValue = Math.max(...eventValues);
+
+        // Check if events are already visible
+        const currentStart = viewport.viewStart;
+        const currentEnd = viewport.viewEnd;
+        const eventsVisible = minDateValue >= currentStart && maxDateValue <= currentEnd;
+
+        if (eventsVisible) return; // Already visible, no need to zoom
+
+        // Calculate zoom to fit all events with padding
+        const range = maxDateValue - minDateValue;
+        const padding = Math.max(range * 0.2, range === 0 ? 5 : 1);
+
+        const newViewStart = minDateValue - padding;
+        const newViewEnd = maxDateValue + padding;
+        const newRange = newViewEnd - newViewStart;
+
+        // Calculate required zoom level
+        const fullRange = dateToNumericValue(bounds.viewEnd) - dateToNumericValue(bounds.viewStart);
+        const newZoomLevel = fullRange / newRange;
+
+        // Center point
+        const center = (minDateValue + maxDateValue) / 2;
+        const centerDate = numericValueToDate(center, 'day');
+
+        // Apply zoom and pan
+        zoomTo(newZoomLevel, 0.5);
+        setTimeout(() => panTo(centerDate), 50);
+      },
+    }),
+    [timeline.events, bounds, viewport, zoomTo, panTo]
+  );
 
   // Create event dialog state
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -77,30 +144,79 @@ export function TimelineViewer({
     onEventSelect?.(focusedEvent);
   }, [focusedEvent, onEventSelect]);
 
-  // Auto-scroll to focused event's track
+  // Auto-scroll to focused event - ensure it's visible both vertically and horizontally
+  // Only runs when focusedEvent changes (not when viewport changes from panning)
   useEffect(() => {
-    if (!focusedEvent || !scrollContainerRef.current) return;
+    if (!focusedEvent || !scrollContainerRef.current || !bounds) return;
 
-    // Find the track element containing the focused event
-    const trackElement = scrollContainerRef.current.querySelector(
-      `[data-track-id="${focusedEvent.trackId}"]`
-    );
+    // Capture current viewport values to avoid stale closure
+    const currentViewStart = viewport.viewStart;
+    const currentViewEnd = viewport.viewEnd;
 
-    if (trackElement) {
-      // Scroll the track into view smoothly
-      trackElement.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-      });
-    }
+    // Wait for detail panel to render and layout to settle
+    const timeoutId = setTimeout(() => {
+      if (!scrollContainerRef.current) return;
+
+      // First, scroll the track header to the top of the viewer
+      const trackElement = scrollContainerRef.current.querySelector(
+        `[data-track-id="${focusedEvent.trackId}"]`
+      );
+
+      if (trackElement) {
+        trackElement.scrollIntoView({
+          behavior: 'auto',
+          block: 'start', // Position track at the top
+        });
+      }
+
+      // Now check if the event is visible in the viewport
+      const eventElement = scrollContainerRef.current.querySelector(
+        `[data-event-id="${focusedEvent.id}"]`
+      );
+
+      if (eventElement) {
+        const container = scrollContainerRef.current;
+        const containerRect = container.getBoundingClientRect();
+        const elementRect = eventElement.getBoundingClientRect();
+
+        // Check if event is fully visible vertically
+        const isVerticallyVisible =
+          elementRect.top >= containerRect.top && elementRect.bottom <= containerRect.bottom;
+
+        // If event is not visible, scroll to it
+        if (!isVerticallyVisible) {
+          eventElement.scrollIntoView({
+            behavior: 'auto',
+            block: 'center',
+          });
+        }
+      }
+
+      // Check if the event is horizontally visible and pan if needed
+      const eventDateValue = dateToNumericValue(focusedEvent.startDate);
+
+      // Check if event is outside the current viewport
+      const isVisible = eventDateValue >= currentViewStart && eventDateValue <= currentViewEnd;
+
+      if (!isVisible) {
+        // Pan to center the event in the viewport
+        const centerDate = numericValueToDate(eventDateValue, 'day');
+        panTo(centerDate);
+      }
+    }, 50);
+
+    return () => clearTimeout(timeoutId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedEvent]);
 
   // Handle event click
   const handleEventClick = useCallback(
     (eventId: string) => {
-      setFocusedEvent(focusedEventId === eventId ? null : eventId);
+      // Always set the focused event, don't toggle
+      // This prevents deselection if the same event is clicked during/after scroll
+      setFocusedEvent(eventId);
     },
-    [focusedEventId, setFocusedEvent]
+    [setFocusedEvent]
   );
 
   // Handle clear focus (clicking background)
@@ -133,6 +249,49 @@ export function TimelineViewer({
     // We need to store it somewhere accessible to the dialog
     // For now, just open the dialog - we'll enhance this later
   }, []);
+
+  // Handle zoom to track
+  const handleZoomToTrack = useCallback(
+    (trackId: string) => {
+      // Get all events for this track
+      const trackEvents = timeline.events.filter((e) => e.trackId === trackId);
+
+      if (trackEvents.length === 0) return;
+      if (!bounds) return;
+
+      // Calculate the bounds for events in this track
+      const eventValues = trackEvents.map((e) => dateToNumericValue(e.startDate));
+      const minDateValue = Math.min(...eventValues);
+      const maxDateValue = Math.max(...eventValues);
+
+      // Add some padding (20% on each side, minimum 1 year)
+      const range = maxDateValue - minDateValue;
+      const padding = Math.max(range * 0.2, range === 0 ? 5 : 1);
+
+      // Calculate the new viewport bounds
+      const newViewStart = minDateValue - padding;
+      const newViewEnd = maxDateValue + padding;
+      const newRange = newViewEnd - newViewStart;
+
+      // Calculate zoom level based on full bounds
+      const fullRange = dateToNumericValue(bounds.viewEnd) - dateToNumericValue(bounds.viewStart);
+      const newZoomLevel = fullRange / newRange;
+
+      // Convert center numeric value to a date string
+      const center = (minDateValue + maxDateValue) / 2;
+      const centerDate = numericValueToDate(center, 'day');
+
+      // First zoom to the calculated level
+      zoomTo(newZoomLevel, 0.5);
+
+      // Then pan to center on the track events
+      // Use a small timeout to ensure zoom completes first
+      setTimeout(() => {
+        panTo(centerDate);
+      }, 50);
+    },
+    [timeline.events, bounds, panTo, zoomTo]
+  );
 
   // Handle zoom
   const handleZoom = useCallback(
@@ -214,14 +373,22 @@ export function TimelineViewer({
       <TimelineCanvas
         timeline={timeline}
         bounds={bounds}
+        viewport={viewport}
+        visibleRange={visibleRange}
         focusedEventId={focusedEventId}
         hoveredEventId={hoveredEventId}
         onEventClick={handleEventClick}
         onEventHover={handleEventHover}
         onTrackNameChange={onTrackNameChange}
+        onTrackColorChange={onTrackColorChange}
+        onTrackDelete={onTrackDelete}
         onCreateEventInTrack={handleCreateEventInTrack}
         onCreateTrack={onCreateTrack}
         onChatAboutTrack={onChatAboutTrack}
+        onZoomToTrack={handleZoomToTrack}
+        onAcceptStaged={onAcceptStaged}
+        onRejectStaged={onRejectStaged}
+        isAcceptingStaged={isAcceptingStaged}
         onClearFocus={handleClearFocus}
         dateToX={dateToX}
         onPan={pan}
@@ -243,3 +410,5 @@ export function TimelineViewer({
     </div>
   );
 }
+
+export const TimelineViewer = forwardRef(TimelineViewerComponent);

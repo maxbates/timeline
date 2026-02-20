@@ -18,6 +18,7 @@ import { getDatePosition, getDateRangeWidth } from './bounds';
 const MAX_LANES = 12; // Increased from 8 to allow more spacing
 const POINT_EVENT_WIDTH = 0.008; // Visual width for point events (temporal)
 const TEXT_LABEL_WIDTH = 0.12; // Text label width as percentage of timeline (~196px at 1600px width)
+const TEXT_LABEL_WIDTH_PIXELS = 196; // Actual pixel width of event labels
 const MIN_VISUAL_SPACING = 0.01; // Minimum spacing between events (1% of timeline)
 
 interface LaneOccupancy {
@@ -56,11 +57,15 @@ function rangesOverlapOrTooClose(
  *
  * @param events - Events to layout (should be from a single track)
  * @param bounds - Timeline bounds for position calculation
+ * @param dateToX - Optional function to convert dates to viewport positions (for viewport-aware layout)
+ * @param containerWidth - Container width in pixels (for viewport-aware label width calculation)
  * @returns Array of layout information for each event
  */
 export function calculateEventLayout(
   events: TimelineEvent[],
-  bounds: TimelineBounds
+  bounds: TimelineBounds,
+  dateToX?: (date: string) => number,
+  containerWidth?: number
 ): EventLayout[] {
   if (events.length === 0) {
     return [];
@@ -86,20 +91,33 @@ export function calculateEventLayout(
 
   for (const event of sortedEvents) {
     // Calculate position and width
-    const x = getDatePosition(event.startDate, bounds);
+    // Use dateToX if provided (viewport-aware), otherwise use bounds-based calculation
+    const x = dateToX ? dateToX(event.startDate) : getDatePosition(event.startDate, bounds);
     let width: number;
 
     if (event.type === 'span' && event.endDate) {
-      width = getDateRangeWidth(event.startDate, event.endDate, bounds);
+      if (dateToX) {
+        // Viewport-aware width calculation
+        const endX = dateToX(event.endDate);
+        width = Math.max(0, endX - x);
+      } else {
+        width = getDateRangeWidth(event.startDate, event.endDate, bounds);
+      }
     } else {
       // Point event - use a small fixed width for visual representation
       width = POINT_EVENT_WIDTH;
     }
 
+    // Calculate text label width
+    // When using viewport-aware positioning, calculate label width based on container pixels
+    // Otherwise use the fixed percentage
+    const textLabelWidth =
+      dateToX && containerWidth ? TEXT_LABEL_WIDTH_PIXELS / containerWidth : TEXT_LABEL_WIDTH;
+
     // Find the effective range for collision detection
     // Include the text label width that extends to the right
     const rangeStart = x;
-    const rangeEnd = x + width + TEXT_LABEL_WIDTH;
+    const rangeEnd = x + width + textLabelWidth;
 
     // Find the first available lane
     let assignedLane = -1;
@@ -134,11 +152,15 @@ export function calculateEventLayout(
  *
  * @param events - All timeline events
  * @param bounds - Timeline bounds
+ * @param dateToX - Optional function to convert dates to viewport positions
+ * @param containerWidth - Container width in pixels (for viewport-aware label width calculation)
  * @returns Map of trackId to array of event layouts
  */
 export function calculateTrackLayouts(
   events: TimelineEvent[],
-  bounds: TimelineBounds
+  bounds: TimelineBounds,
+  dateToX?: (date: string) => number,
+  containerWidth?: number
 ): Map<string, EventLayout[]> {
   const trackEvents = new Map<string, TimelineEvent[]>();
 
@@ -154,7 +176,10 @@ export function calculateTrackLayouts(
   // Calculate layout for each track
   const trackLayouts = new Map<string, EventLayout[]>();
   for (const [trackId, trackEventList] of trackEvents) {
-    trackLayouts.set(trackId, calculateEventLayout(trackEventList, bounds));
+    trackLayouts.set(
+      trackId,
+      calculateEventLayout(trackEventList, bounds, dateToX, containerWidth)
+    );
   }
 
   return trackLayouts;

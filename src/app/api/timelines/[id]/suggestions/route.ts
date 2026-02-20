@@ -8,16 +8,17 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import Anthropic from '@anthropic-ai/sdk';
 
-const getClient = () => {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY environment variable is not set');
-  }
-  return new Anthropic({ apiKey });
-};
-
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: timelineId } = await params;
+
+  // Extract API key from header
+  const apiKey = request.headers.get('x-api-key');
+  if (!apiKey) {
+    return Response.json(
+      { error: 'No API key provided. Set your Anthropic API key in Settings.' },
+      { status: 401 }
+    );
+  }
 
   try {
     // Get the timeline
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return Response.json({ error: 'Timeline not found' }, { status: 404 });
     }
 
-    const client = getClient();
+    const client = new Anthropic({ apiKey });
 
     const systemPrompt = `You are a helpful assistant that generates engaging prompts for timeline event generation.
 Given a timeline title and description, generate exactly 5 diverse, specific prompts that would help populate the timeline with interesting events.

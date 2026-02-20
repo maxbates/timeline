@@ -16,7 +16,7 @@ import {
   useState,
   useCallback,
 } from 'react';
-import type { TimelineEvent, TimelineBounds, ChatContext } from '@/types';
+import type { TimelineBounds, TimelineEvent, ChatContext } from '@/types';
 import { useChat } from '../hooks/useChat';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
@@ -25,10 +25,13 @@ interface ChatPanelProps {
   timelineId: string;
   stagingTrackId?: string;
   bounds?: TimelineBounds;
-  focusedEvent?: TimelineEvent | null;
+  apiKey?: string;
   eventCount?: number;
   onEventsGenerated?: (events: Partial<TimelineEvent>[]) => void;
   onEventClick?: (eventId: string) => void;
+  onLoadingChange?: (isLoading: boolean) => void;
+  onOpenApiKeyDialog?: () => void;
+  disabled?: boolean;
   className?: string;
 }
 
@@ -41,10 +44,13 @@ function ChatPanelComponent(
     timelineId,
     stagingTrackId,
     bounds,
-    focusedEvent,
+    apiKey,
     eventCount = 0,
     onEventsGenerated,
     onEventClick,
+    onLoadingChange,
+    onOpenApiKeyDialog,
+    disabled = false,
     className = '',
   }: ChatPanelProps,
   ref: React.Ref<ChatPanelHandle>
@@ -59,8 +65,14 @@ function ChatPanelComponent(
     timelineId,
     stagingTrackId,
     bounds,
+    apiKey,
     onEventsGenerated,
   });
+
+  // Notify parent of loading state changes
+  useEffect(() => {
+    onLoadingChange?.(isLoading);
+  }, [isLoading, onLoadingChange]);
 
   // Expose sendMessage to parent via ref
   useImperativeHandle(ref, () => ({
@@ -75,20 +87,21 @@ function ChatPanelComponent(
   // Handle sending a message
   const handleSend = useCallback(
     (content: string) => {
-      const context: ChatContext | undefined = focusedEvent
-        ? { focusedEventId: focusedEvent.id, action: 'learn_more' }
-        : undefined;
-
-      sendMessage(content, context);
+      // Always send without context - chat is for generating events only
+      sendMessage(content, undefined);
     },
-    [focusedEvent, sendMessage]
+    [sendMessage]
   );
 
   // Fetch suggestions
   const handleGetSuggestions = useCallback(async () => {
     setIsLoadingSuggestions(true);
     try {
-      const response = await fetch(`/api/timelines/${timelineId}/suggestions`);
+      const response = await fetch(`/api/timelines/${timelineId}/suggestions`, {
+        headers: {
+          ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+        },
+      });
       if (response.ok) {
         const data = await response.json();
         setSuggestions(data.suggestions || []);
@@ -98,7 +111,7 @@ function ChatPanelComponent(
     } finally {
       setIsLoadingSuggestions(false);
     }
-  }, [timelineId]);
+  }, [timelineId, apiKey]);
 
   // Handle suggestion click
   const handleSuggestionClick = useCallback(
@@ -144,11 +157,18 @@ function ChatPanelComponent(
         )}
       </div>
 
-      {/* Context indicator */}
-      {focusedEvent && (
-        <div className="border-t border-gray-100 bg-blue-50 px-4 py-2">
-          <p className="text-xs text-blue-600">
-            Asking about: <span className="font-medium">{focusedEvent.title}</span>
+      {/* API key warning */}
+      {!apiKey && (
+        <div className="mx-3 mb-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <p>
+            Set your Anthropic API key in{' '}
+            <button
+              onClick={onOpenApiKeyDialog}
+              className="font-medium underline hover:text-amber-900"
+            >
+              Settings
+            </button>{' '}
+            to generate events.
           </p>
         </div>
       )}
@@ -156,9 +176,13 @@ function ChatPanelComponent(
       {/* Input */}
       <ChatInput
         onSend={handleSend}
-        disabled={isLoading}
+        disabled={isLoading || disabled || !apiKey}
         placeholder={
-          focusedEvent ? `Ask about "${focusedEvent.title}"...` : 'Ask me to generate events...'
+          !apiKey
+            ? 'Set your API key to start...'
+            : disabled
+              ? 'Accept or reject staged events first...'
+              : 'Ask me to generate events...'
         }
       />
     </div>

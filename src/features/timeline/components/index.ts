@@ -2,7 +2,7 @@
  * Timeline components
  */
 
-export { TimelineViewer } from './TimelineViewer';
+export { TimelineViewer, type TimelineViewerHandle } from './TimelineViewer';
 export { TimelineCanvas } from './TimelineCanvas';
 export { TimelineTrack } from './TimelineTrack';
 export { TimeAxis } from './TimeAxis';

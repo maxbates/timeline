@@ -13,10 +13,12 @@ import { formatDateForDisplay } from '@/lib/dates';
 import { TRACK_COLORS } from '@/types';
 import { EventLocation } from './EventLocation';
 import { EventSources } from './EventSources';
+import { PressAndHoldButton } from '@/components/PressAndHoldButton';
 
 interface EventDetailProps {
   event: TimelineEvent;
   track?: Track;
+  apiKey?: string;
   onLearnMore?: () => void;
   onUpdateEvent?: (eventId: string, updates: Partial<TimelineEvent>) => void;
   onDelete?: (eventId: string) => void;
@@ -25,11 +27,11 @@ interface EventDetailProps {
 function EventDetailComponent({
   event,
   track,
+  apiKey,
   onLearnMore: _onLearnMore,
   onUpdateEvent,
   onDelete,
 }: EventDetailProps) {
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [expandedDescription, setExpandedDescription] = useState('');
 
@@ -47,16 +49,10 @@ function EventDetailComponent({
   // Get track color
   const trackColor = track ? TRACK_COLORS[track.color] : TRACK_COLORS.blue;
 
-  // Handle delete button click
-  const handleDeleteClick = () => {
-    if (deleteConfirm) {
-      onDelete?.(event.id);
-    } else {
-      setDeleteConfirm(true);
-      // Reset confirmation after 3 seconds
-      setTimeout(() => setDeleteConfirm(false), 3000);
-    }
-  };
+  // Handle delete
+  const handleDelete = useCallback(() => {
+    onDelete?.(event.id);
+  }, [event.id, onDelete]);
 
   // Handle learn more - stream additional details into the description
   const handleLearnMoreClick = useCallback(async () => {
@@ -69,6 +65,9 @@ function EventDetailComponent({
         `/api/timelines/${event.timelineId}/events/${event.id}/details`,
         {
           method: 'POST',
+          headers: {
+            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+          },
         }
       );
 
@@ -122,7 +121,7 @@ function EventDetailComponent({
     } finally {
       setIsLoadingDetails(false);
     }
-  }, [event.id, event.timelineId, event.longDescription, isLoadingDetails, onUpdateEvent]);
+  }, [event.id, event.timelineId, event.longDescription, isLoadingDetails, onUpdateEvent, apiKey]);
 
   // Check if event has map
   const hasMap = event.location?.latitude !== undefined && event.location?.longitude !== undefined;
@@ -132,8 +131,8 @@ function EventDetailComponent({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header with track color indicator and actions */}
-      <div className="border-b border-gray-200 p-4">
+      {/* Header with track color indicator and actions - fixed at top */}
+      <div className="flex-shrink-0 border-b border-gray-200 bg-white p-4">
         <div className="flex items-start gap-3">
           {/* Track color indicator */}
           <div
@@ -161,16 +160,13 @@ function EventDetailComponent({
               </span>
             )}
 
-            {/* Delete button */}
+            {/* Delete button - press and hold */}
             {onDelete && (
-              <button
-                onClick={handleDeleteClick}
-                className={`flex-shrink-0 rounded-lg border p-1.5 transition-colors ${
-                  deleteConfirm
-                    ? 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100'
-                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                }`}
-                title={deleteConfirm ? 'Click again to confirm' : 'Delete event'}
+              <PressAndHoldButton
+                onComplete={handleDelete}
+                duration={1500}
+                className="flex-shrink-0 rounded-lg border border-gray-300 bg-white p-1.5 text-gray-700 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600"
+                title="Press and hold to delete event"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
@@ -180,7 +176,7 @@ function EventDetailComponent({
                     d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
                   />
                 </svg>
-              </button>
+              </PressAndHoldButton>
             )}
           </div>
         </div>
@@ -198,12 +194,12 @@ function EventDetailComponent({
         )}
       </div>
 
-      {/* Content */}
+      {/* Content - scrollable */}
       <div className="flex-1 overflow-hidden">
         {hasMap ? (
           /* Split layout: content on left, map on right */
           <div className="flex h-full">
-            {/* Left: Text content */}
+            {/* Left: Text content - scrollable */}
             <div className="flex-1 overflow-y-auto border-r border-gray-200 p-4">
               <div className="space-y-6">
                 {/* Short description */}
@@ -319,14 +315,14 @@ function EventDetailComponent({
               </div>
             </div>
 
-            {/* Right: Map - full height */}
+            {/* Right: Map - full height, fixed width */}
             <div className="w-80 flex-shrink-0 bg-gray-50">
               <EventLocation location={event.location!} mapOnly fullHeight />
             </div>
           </div>
         ) : (
-          /* Normal layout: everything stacked */
-          <div className="p-4">
+          /* Normal layout: everything stacked - scrollable */
+          <div className="h-full overflow-y-auto p-4">
             <div className="space-y-6">
               {/* Short description */}
               <div>

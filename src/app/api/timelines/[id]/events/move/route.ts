@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import type { TimelineEvent as PrismaEvent } from '@prisma/client';
+import { geocodeLocation } from '@/lib/geocoding';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -70,28 +71,64 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // Create new events for staged events that don't exist in DB yet
     const stagedEventIds = eventIds.filter((id) => !existingEventIds.has(id));
     if (stagedEventIds.length > 0 && stagedEvents) {
-      for (const eventId of stagedEventIds) {
+      // Geocode all events in parallel first
+      const geocodePromises = stagedEventIds.map(async (eventId) => {
         const stagedEvent = stagedEvents.find((e: { id: string }) => e.id === eventId);
-        if (stagedEvent) {
-          const createdEvent = await prisma.timelineEvent.create({
-            data: {
-              timelineId,
-              trackId: targetTrackId,
-              title: stagedEvent.title,
-              description: stagedEvent.description,
-              longDescription: stagedEvent.longDescription || '',
-              type: stagedEvent.type,
-              startDate: stagedEvent.startDate,
-              endDate: stagedEvent.endDate,
-              datePrecision: stagedEvent.datePrecision,
-              location: stagedEvent.location,
-              sources: stagedEvent.sources || [],
-              tags: stagedEvent.tags || [],
-              status: 'confirmed',
-            },
-          });
-          updatedEvents.push(createdEvent);
+        if (!stagedEvent) return null;
+
+        let location = stagedEvent.location;
+        if (location && !location.latitude && !location.longitude) {
+          console.log('Geocoding location for staged event:', location.name);
+          const geocoded = await geocodeLocation(location.name);
+          if (geocoded) {
+            location = {
+              ...location,
+              latitude: geocoded.latitude,
+              longitude: geocoded.longitude,
+            };
+            console.log('Geocoded successfully:', location);
+          } else {
+            console.warn('Failed to geocode location:', location.name);
+          }
         }
+
+        return {
+          ...stagedEvent,
+          location,
+        };
+      });
+
+      const geocodedEvents = (await Promise.all(geocodePromises)).filter(
+        (e): e is NonNullable<typeof e> => e !== null
+      );
+
+      // Batch create all events in a single query
+      if (geocodedEvents.length > 0) {
+        // Pre-generate UUIDs so we can retrieve the created records by ID
+        // (createMany does not return created records)
+        const eventsWithIds = geocodedEvents.map((stagedEvent) => ({
+          id: crypto.randomUUID(),
+          timelineId,
+          trackId: targetTrackId,
+          title: stagedEvent.title,
+          description: stagedEvent.description,
+          longDescription: stagedEvent.longDescription || '',
+          type: stagedEvent.type,
+          startDate: stagedEvent.startDate,
+          endDate: stagedEvent.endDate,
+          datePrecision: stagedEvent.datePrecision,
+          location: stagedEvent.location,
+          sources: stagedEvent.sources || [],
+          tags: stagedEvent.tags || [],
+          status: 'confirmed',
+        }));
+
+        await prisma.timelineEvent.createMany({ data: eventsWithIds });
+
+        const created = await prisma.timelineEvent.findMany({
+          where: { id: { in: eventsWithIds.map((e) => e.id) } },
+        });
+        updatedEvents.push(...created);
       }
     }
 

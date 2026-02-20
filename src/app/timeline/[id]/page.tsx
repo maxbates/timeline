@@ -6,11 +6,32 @@
  */
 
 import { notFound } from 'next/navigation';
+import type { Metadata } from 'next';
 import { prisma } from '@/lib/db';
 import { TimelineViewerClient } from './client';
 
 interface PageProps {
   params: Promise<{ id: string }>;
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { id } = await params;
+
+  const timeline = await prisma.timeline.findUnique({
+    where: { id },
+    select: { title: true, description: true },
+  });
+
+  if (!timeline) {
+    return {
+      title: 'Timeline Not Found',
+    };
+  }
+
+  return {
+    title: `${timeline.title} | Timeline`,
+    description: timeline.description || undefined,
+  };
 }
 
 export default async function TimelinePage({ params }: PageProps) {
@@ -40,45 +61,51 @@ export default async function TimelinePage({ params }: PageProps) {
     visibility: timeline.visibility as 'private' | 'unlisted' | 'public',
     createdAt: timeline.createdAt.toString(),
     updatedAt: timeline.updatedAt.toString(),
-    tracks: timeline.tracks.map((track) => ({
-      ...track,
-      type: track.type as 'main' | 'staging' | 'custom',
-      color: track.color as
-        | 'blue'
-        | 'green'
-        | 'red'
-        | 'orange'
-        | 'purple'
-        | 'pink'
-        | 'teal'
-        | 'gray',
-      metadata: track.metadata as Record<string, unknown> | undefined,
-    })),
-    events: timeline.events.map((event) => ({
-      ...event,
-      type: event.type as 'point' | 'span',
-      endDate: event.endDate ?? undefined,
-      datePrecision: event.datePrecision as 'year' | 'month' | 'day' | 'datetime',
-      status: event.status as 'confirmed' | 'staged',
-      createdAt: event.createdAt.toString(),
-      updatedAt: event.updatedAt.toString(),
-      location: event.location as
-        | {
-            name: string;
-            latitude?: number;
-            longitude?: number;
-            placeId?: string;
-          }
-        | undefined,
-      sources:
-        (event.sources as Array<{
-          title: string;
-          url: string;
-          type: 'wikipedia' | 'article' | 'book' | 'other';
-          accessedAt?: string;
-        }>) || [],
-      metadata: event.metadata as Record<string, unknown> | undefined,
-    })),
+    // Filter out any persisted staging tracks - they should only exist client-side
+    tracks: timeline.tracks
+      .filter((track) => track.type !== 'staging')
+      .map((track) => ({
+        ...track,
+        type: track.type as 'main' | 'staging' | 'custom',
+        color: track.color as
+          | 'blue'
+          | 'green'
+          | 'red'
+          | 'orange'
+          | 'purple'
+          | 'pink'
+          | 'teal'
+          | 'gray',
+        metadata: track.metadata as Record<string, unknown> | undefined,
+      })),
+    // Filter out any staged events - they should only exist client-side
+    events: timeline.events
+      .filter((event) => event.status !== 'staged')
+      .map((event) => ({
+        ...event,
+        type: event.type as 'point' | 'span',
+        endDate: event.endDate ?? undefined,
+        datePrecision: event.datePrecision as 'year' | 'month' | 'day' | 'datetime',
+        status: event.status as 'confirmed' | 'staged',
+        createdAt: event.createdAt.toString(),
+        updatedAt: event.updatedAt.toString(),
+        location: event.location as
+          | {
+              name: string;
+              latitude?: number;
+              longitude?: number;
+              placeId?: string;
+            }
+          | undefined,
+        sources:
+          (event.sources as Array<{
+            title: string;
+            url: string;
+            type: 'wikipedia' | 'article' | 'book' | 'other';
+            accessedAt?: string;
+          }>) || [],
+        metadata: event.metadata as Record<string, unknown> | undefined,
+      })),
     metadata: timeline.metadata as Record<string, unknown> | undefined,
   };
 
