@@ -104,32 +104,29 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
       // Batch create all events in a single query
       if (geocodedEvents.length > 0) {
-        await prisma.timelineEvent.createMany({
-          data: geocodedEvents.map((stagedEvent) => ({
-            timelineId,
-            trackId: targetTrackId,
-            title: stagedEvent.title,
-            description: stagedEvent.description,
-            longDescription: stagedEvent.longDescription || '',
-            type: stagedEvent.type,
-            startDate: stagedEvent.startDate,
-            endDate: stagedEvent.endDate,
-            datePrecision: stagedEvent.datePrecision,
-            location: stagedEvent.location,
-            sources: stagedEvent.sources || [],
-            tags: stagedEvent.tags || [],
-            status: 'confirmed',
-          })),
-        });
+        // Pre-generate UUIDs so we can retrieve the created records by ID
+        // (createMany does not return created records)
+        const eventsWithIds = geocodedEvents.map((stagedEvent) => ({
+          id: crypto.randomUUID(),
+          timelineId,
+          trackId: targetTrackId,
+          title: stagedEvent.title,
+          description: stagedEvent.description,
+          longDescription: stagedEvent.longDescription || '',
+          type: stagedEvent.type,
+          startDate: stagedEvent.startDate,
+          endDate: stagedEvent.endDate,
+          datePrecision: stagedEvent.datePrecision,
+          location: stagedEvent.location,
+          sources: stagedEvent.sources || [],
+          tags: stagedEvent.tags || [],
+          status: 'confirmed',
+        }));
 
-        // Fetch the created events (createMany doesn't return them)
+        await prisma.timelineEvent.createMany({ data: eventsWithIds });
+
         const created = await prisma.timelineEvent.findMany({
-          where: {
-            timelineId,
-            trackId: targetTrackId,
-            title: { in: geocodedEvents.map((e) => e.title) },
-            startDate: { in: geocodedEvents.map((e) => e.startDate) },
-          },
+          where: { id: { in: eventsWithIds.map((e) => e.id) } },
         });
         updatedEvents.push(...created);
       }

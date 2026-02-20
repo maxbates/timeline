@@ -266,12 +266,9 @@ export async function learnMore(event: TimelineEvent, apiKey: string): Promise<L
  */
 export async function* getEventDetailsStream(
   message: string,
-  event?: Partial<TimelineEvent>,
-  apiKey?: string
+  event: Partial<TimelineEvent> | undefined,
+  apiKey: string
 ): AsyncGenerator<{ type: 'text' | 'done'; content?: string }> {
-  if (!apiKey) {
-    throw new Error('No API key provided. Set your Anthropic API key in Settings.');
-  }
   const client = getClient(apiKey);
 
   const systemPrompt = `You are a knowledgeable historian providing detailed information about historical events.
