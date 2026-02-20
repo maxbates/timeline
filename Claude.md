@@ -262,7 +262,7 @@ mkdir -p src/features src/lib src/types
 
 ### Claude API Usage
 
-- Store API keys in environment variables
+- **API key is set by the user in the browser UI** and stored in `localStorage` (not in server-side environment variables). The key is passed to the Next.js API routes via the `X-API-Key` HTTP header on every request. There is no server-side `ANTHROPIC_API_KEY` env var — users bring their own key.
 - Implement rate limiting and error handling
 - Cache responses when appropriate
 - Use streaming for real-time timeline generation

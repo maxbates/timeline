@@ -67,6 +67,15 @@ function llmEventToTimelineEvent(
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: timelineId } = await params;
 
+  // Extract API key from header
+  const apiKey = request.headers.get('x-api-key');
+  if (!apiKey) {
+    return Response.json(
+      { error: 'No API key provided. Set your Anthropic API key in Settings.' },
+      { status: 401 }
+    );
+  }
+
   try {
     // Parse and validate request body
     const body = await request.json();
@@ -108,7 +117,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             }
           }
 
-          const streamGenerator = getEventDetailsStream(message, focusedEvent);
+          const streamGenerator = getEventDetailsStream(message, focusedEvent, apiKey);
 
           for await (const chunk of streamGenerator) {
             if (chunk.type === 'text' && chunk.content) {
@@ -124,6 +133,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           await sendEvent({ type: 'loading', content: 'Generating events...' });
 
           const streamGenerator = generateEventsStream(message, {
+            apiKey,
             bounds: bounds as TimelineBounds | undefined,
           });
 

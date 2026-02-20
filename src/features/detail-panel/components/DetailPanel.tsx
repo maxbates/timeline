@@ -14,6 +14,7 @@ import { EventDetail } from './EventDetail';
 interface DetailPanelProps {
   event: TimelineEvent | null;
   track?: Track;
+  apiKey?: string;
   onLearnMore?: () => void;
   onUpdateEvent?: (eventId: string, updates: Partial<TimelineEvent>) => void;
   onDelete?: (eventId: string) => void;
@@ -23,6 +24,7 @@ interface DetailPanelProps {
 function DetailPanelComponent({
   event,
   track,
+  apiKey,
   onLearnMore,
   onUpdateEvent,
   onDelete,
@@ -34,6 +36,7 @@ function DetailPanelComponent({
         <EventDetail
           event={event}
           track={track}
+          apiKey={apiKey}
           onLearnMore={onLearnMore}
           onUpdateEvent={onUpdateEvent}
           onDelete={onDelete}

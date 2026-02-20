@@ -46,13 +46,10 @@ export type LLMEvent = z.infer<typeof llmEventSchema>;
 export type LLMResponse = z.infer<typeof llmResponseSchema>;
 
 /**
- * Initialize Anthropic client
+ * Initialize Anthropic client with a user-provided API key.
+ * The key is passed from the client via HTTP header on each request.
  */
-function getClient(): Anthropic {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY environment variable is not set');
-  }
+function getClient(apiKey: string): Anthropic {
   return new Anthropic({ apiKey });
 }
 
@@ -145,13 +142,14 @@ function parseResponse(content: string): LLMResponse {
  */
 export async function generateEvents(
   query: string,
-  options?: {
+  options: {
+    apiKey: string;
     bounds?: TimelineBounds;
     focusedEvent?: Partial<TimelineEvent>;
     maxEvents?: number;
   }
 ): Promise<LLMResponse> {
-  const client = getClient();
+  const client = getClient(options.apiKey);
 
   const userPrompt = buildUserPrompt(query, options?.bounds, options?.focusedEvent);
 
@@ -182,13 +180,14 @@ export async function generateEvents(
  */
 export async function* generateEventsStream(
   query: string,
-  options?: {
+  options: {
+    apiKey: string;
     bounds?: TimelineBounds;
     focusedEvent?: Partial<TimelineEvent>;
     maxEvents?: number;
   }
 ): AsyncGenerator<{ type: 'event' | 'done'; event?: LLMEvent }> {
-  const client = getClient();
+  const client = getClient(options.apiKey);
 
   const userPrompt = buildUserPrompt(query, options?.bounds, options?.focusedEvent);
 
@@ -251,10 +250,11 @@ export async function* generateEventsStream(
 /**
  * Learn more about a specific event (generates additional context events)
  */
-export async function learnMore(event: TimelineEvent): Promise<LLMResponse> {
+export async function learnMore(event: TimelineEvent, apiKey: string): Promise<LLMResponse> {
   const query = `Tell me more about "${event.title}" (${event.startDate}). Generate additional related events that provide historical context.`;
 
   return generateEvents(query, {
+    apiKey,
     focusedEvent: event,
     maxEvents: 5,
   });
@@ -266,9 +266,10 @@ export async function learnMore(event: TimelineEvent): Promise<LLMResponse> {
  */
 export async function* getEventDetailsStream(
   message: string,
-  event?: Partial<TimelineEvent>
+  event: Partial<TimelineEvent> | undefined,
+  apiKey: string
 ): AsyncGenerator<{ type: 'text' | 'done'; content?: string }> {
-  const client = getClient();
+  const client = getClient(apiKey);
 
   const systemPrompt = `You are a knowledgeable historian providing detailed information about historical events.
 When asked about an event, provide 2-3 paragraphs of additional context, significance, and interesting details.
@@ -304,11 +305,13 @@ DO NOT generate JSON. DO NOT suggest new events. Just provide informative prose.
  */
 export async function findSimilarEvents(
   event: TimelineEvent,
+  apiKey: string,
   bounds?: TimelineBounds
 ): Promise<LLMResponse> {
   const query = `Find events similar to "${event.title}" in terms of theme, impact, or historical significance.`;
 
   return generateEvents(query, {
+    apiKey,
     bounds,
     focusedEvent: event,
     maxEvents: 5,
