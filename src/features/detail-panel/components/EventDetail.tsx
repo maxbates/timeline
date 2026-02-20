@@ -18,6 +18,7 @@ import { PressAndHoldButton } from '@/components/PressAndHoldButton';
 interface EventDetailProps {
   event: TimelineEvent;
   track?: Track;
+  apiKey?: string;
   onLearnMore?: () => void;
   onUpdateEvent?: (eventId: string, updates: Partial<TimelineEvent>) => void;
   onDelete?: (eventId: string) => void;
@@ -26,6 +27,7 @@ interface EventDetailProps {
 function EventDetailComponent({
   event,
   track,
+  apiKey,
   onLearnMore: _onLearnMore,
   onUpdateEvent,
   onDelete,
@@ -63,6 +65,9 @@ function EventDetailComponent({
         `/api/timelines/${event.timelineId}/events/${event.id}/details`,
         {
           method: 'POST',
+          headers: {
+            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+          },
         }
       );
 
@@ -116,7 +121,7 @@ function EventDetailComponent({
     } finally {
       setIsLoadingDetails(false);
     }
-  }, [event.id, event.timelineId, event.longDescription, isLoadingDetails, onUpdateEvent]);
+  }, [event.id, event.timelineId, event.longDescription, isLoadingDetails, onUpdateEvent, apiKey]);
 
   // Check if event has map
   const hasMap = event.location?.latitude !== undefined && event.location?.longitude !== undefined;

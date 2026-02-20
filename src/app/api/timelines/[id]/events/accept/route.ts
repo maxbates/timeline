@@ -37,7 +37,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     // Find main track if no target specified
-    const mainTrack = timeline.tracks.find((t) => t.type === 'main');
+    const mainTrack = timeline.tracks.find((t: { type: string }) => t.type === 'main');
     const targetTrack = targetTrackId || mainTrack?.id;
 
     if (!targetTrack) {

@@ -14,6 +14,8 @@ import { TimelineViewer, type TimelineViewerHandle } from '@/features/timeline';
 import { DetailPanel } from '@/features/detail-panel';
 import { ChatPanel, type ChatPanelHandle } from '@/features/chat';
 import { calculateTimelineBounds } from '@/features/timeline/utils/bounds';
+import { useApiKey } from '@/lib/hooks/useApiKey';
+import { ApiKeyDialog } from '@/features/header/components/ApiKeyDialog';
 
 interface TimelineViewerClientProps {
   timeline: Timeline;
@@ -25,8 +27,10 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
   const [isSaving, setIsSaving] = useState(false);
   const [isMovingEvents, setIsMovingEvents] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [showApiKeyDialog, setShowApiKeyDialog] = useState(false);
   const chatPanelRef = useRef<ChatPanelHandle>(null);
   const timelineViewerRef = useRef<TimelineViewerHandle>(null);
+  const { apiKey, hasApiKey, setApiKey, clearApiKey } = useApiKey();
 
   // Get staged events
   const stagedEvents = useMemo(
@@ -73,6 +77,7 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
     // Staging track already exists, return timeline as-is
     console.log('Staging track already exists, returning timeline as-is');
     return timeline;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeline, stagingTrackId]);
 
   // Calculate bounds
@@ -487,7 +492,13 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
   return (
     <div className="flex h-screen flex-col bg-gray-50">
       {/* Header */}
-      <Header timeline={timelineWithStaging} onSave={handleSave} isSaving={isSaving} />
+      <Header
+        timeline={timelineWithStaging}
+        onSave={handleSave}
+        isSaving={isSaving}
+        hasApiKey={hasApiKey}
+        onOpenApiKeyDialog={() => setShowApiKeyDialog(true)}
+      />
 
       {/* Main content - two column layout */}
       <div className="flex flex-1 overflow-hidden">
@@ -518,6 +529,7 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
               <DetailPanel
                 event={selectedEvent}
                 track={selectedTrack}
+                apiKey={apiKey}
                 onUpdateEvent={handleUpdateEvent}
                 onDelete={handleDeleteEvent}
                 className="h-full"
@@ -533,15 +545,26 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
             timelineId={timeline.id}
             stagingTrackId={stagingTrackId}
             bounds={bounds || undefined}
+            apiKey={apiKey}
             eventCount={timeline.events.filter((e) => e.status === 'confirmed').length}
             onEventsGenerated={handleEventsGenerated}
             onEventClick={handleEventClick}
             onLoadingChange={setIsChatLoading}
+            onOpenApiKeyDialog={() => setShowApiKeyDialog(true)}
             disabled={stagedEvents.length > 0}
             className="h-full"
           />
         </aside>
       </div>
+
+      {/* API Key Dialog */}
+      <ApiKeyDialog
+        isOpen={showApiKeyDialog}
+        onClose={() => setShowApiKeyDialog(false)}
+        currentKey={apiKey}
+        onSave={setApiKey}
+        onClear={clearApiKey}
+      />
     </div>
   );
 }

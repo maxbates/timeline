@@ -16,7 +16,7 @@ import {
   useState,
   useCallback,
 } from 'react';
-import type { TimelineBounds, ChatContext } from '@/types';
+import type { TimelineBounds, TimelineEvent, ChatContext } from '@/types';
 import { useChat } from '../hooks/useChat';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
@@ -25,10 +25,12 @@ interface ChatPanelProps {
   timelineId: string;
   stagingTrackId?: string;
   bounds?: TimelineBounds;
+  apiKey?: string;
   eventCount?: number;
   onEventsGenerated?: (events: Partial<TimelineEvent>[]) => void;
   onEventClick?: (eventId: string) => void;
   onLoadingChange?: (isLoading: boolean) => void;
+  onOpenApiKeyDialog?: () => void;
   disabled?: boolean;
   className?: string;
 }
@@ -42,10 +44,12 @@ function ChatPanelComponent(
     timelineId,
     stagingTrackId,
     bounds,
+    apiKey,
     eventCount = 0,
     onEventsGenerated,
     onEventClick,
     onLoadingChange,
+    onOpenApiKeyDialog,
     disabled = false,
     className = '',
   }: ChatPanelProps,
@@ -61,6 +65,7 @@ function ChatPanelComponent(
     timelineId,
     stagingTrackId,
     bounds,
+    apiKey,
     onEventsGenerated,
   });
 
@@ -92,7 +97,11 @@ function ChatPanelComponent(
   const handleGetSuggestions = useCallback(async () => {
     setIsLoadingSuggestions(true);
     try {
-      const response = await fetch(`/api/timelines/${timelineId}/suggestions`);
+      const response = await fetch(`/api/timelines/${timelineId}/suggestions`, {
+        headers: {
+          ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+        },
+      });
       if (response.ok) {
         const data = await response.json();
         setSuggestions(data.suggestions || []);
@@ -102,7 +111,7 @@ function ChatPanelComponent(
     } finally {
       setIsLoadingSuggestions(false);
     }
-  }, [timelineId]);
+  }, [timelineId, apiKey]);
 
   // Handle suggestion click
   const handleSuggestionClick = useCallback(
@@ -148,12 +157,32 @@ function ChatPanelComponent(
         )}
       </div>
 
+      {/* API key warning */}
+      {!apiKey && (
+        <div className="mx-3 mb-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <p>
+            Set your Anthropic API key in{' '}
+            <button
+              onClick={onOpenApiKeyDialog}
+              className="font-medium underline hover:text-amber-900"
+            >
+              Settings
+            </button>{' '}
+            to generate events.
+          </p>
+        </div>
+      )}
+
       {/* Input */}
       <ChatInput
         onSend={handleSend}
-        disabled={isLoading || disabled}
+        disabled={isLoading || disabled || !apiKey}
         placeholder={
-          disabled ? 'Accept or reject staged events first...' : 'Ask me to generate events...'
+          !apiKey
+            ? 'Set your API key to start...'
+            : disabled
+              ? 'Accept or reject staged events first...'
+              : 'Ask me to generate events...'
         }
       />
     </div>

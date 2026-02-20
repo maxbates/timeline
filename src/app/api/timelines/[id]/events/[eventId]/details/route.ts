@@ -15,6 +15,15 @@ export async function POST(
 ) {
   const { id: timelineId, eventId } = await params;
 
+  // Extract API key from header
+  const apiKey = request.headers.get('x-api-key');
+  if (!apiKey) {
+    return Response.json(
+      { error: 'No API key provided. Set your Anthropic API key in Settings.' },
+      { status: 401 }
+    );
+  }
+
   try {
     // Get the event from database
     const event = await prisma.timelineEvent.findUnique({
@@ -48,7 +57,7 @@ export async function POST(
           endDate: event.endDate || undefined,
         };
 
-        const streamGenerator = getEventDetailsStream(message, focusedEvent);
+        const streamGenerator = getEventDetailsStream(message, focusedEvent, apiKey);
 
         for await (const chunk of streamGenerator) {
           if (chunk.type === 'text' && chunk.content) {

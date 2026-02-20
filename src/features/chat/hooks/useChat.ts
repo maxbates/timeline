@@ -15,6 +15,7 @@ interface UseChatOptions {
   timelineId: string;
   stagingTrackId?: string;
   bounds?: TimelineBounds;
+  apiKey?: string;
   onEventsGenerated?: (events: Partial<TimelineEvent>[]) => void;
 }
 
@@ -40,6 +41,7 @@ export function useChat({
   timelineId,
   stagingTrackId,
   bounds,
+  apiKey,
   onEventsGenerated,
 }: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -87,6 +89,7 @@ export function useChat({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
           },
           body: JSON.stringify({
             message: content,
@@ -222,7 +225,7 @@ export function useChat({
         abortControllerRef.current = null;
       }
     },
-    [timelineId, stagingTrackId, bounds, onEventsGenerated]
+    [timelineId, stagingTrackId, bounds, apiKey, onEventsGenerated]
   );
 
   /**
