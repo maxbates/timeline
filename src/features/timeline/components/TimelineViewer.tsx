@@ -28,6 +28,7 @@ import { dateToNumericValue, numericValueToDate } from '@/lib/dates';
 
 export interface TimelineViewerHandle {
   zoomToFitEvents: (eventIds: string[]) => void;
+  scrollToTrack: (trackId: string) => void;
 }
 
 interface TimelineViewerProps {
@@ -120,6 +121,15 @@ function TimelineViewerComponent(
         // Apply zoom and pan
         zoomTo(newZoomLevel, 0.5);
         setTimeout(() => panTo(centerDate), 50);
+      },
+      scrollToTrack: (trackId: string) => {
+        if (!scrollContainerRef.current) return;
+        const trackElement = scrollContainerRef.current.querySelector(
+          `[data-track-id="${trackId}"]`
+        );
+        if (trackElement) {
+          trackElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
       },
     }),
     [timeline.events, bounds, viewport, zoomTo, panTo]

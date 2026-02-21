@@ -28,6 +28,7 @@ interface ChatPanelProps {
   apiKey?: string;
   eventCount?: number;
   onEventsGenerated?: (events: Partial<TimelineEvent>[]) => void;
+  onTrackTitleSuggested?: (title: string) => void;
   onEventClick?: (eventId: string) => void;
   onLoadingChange?: (isLoading: boolean) => void;
   onOpenApiKeyDialog?: () => void;
@@ -47,6 +48,7 @@ function ChatPanelComponent(
     apiKey,
     eventCount = 0,
     onEventsGenerated,
+    onTrackTitleSuggested,
     onEventClick,
     onLoadingChange,
     onOpenApiKeyDialog,
@@ -67,6 +69,7 @@ function ChatPanelComponent(
     bounds,
     apiKey,
     onEventsGenerated,
+    onTrackTitleSuggested,
   });
 
   // Notify parent of loading state changes

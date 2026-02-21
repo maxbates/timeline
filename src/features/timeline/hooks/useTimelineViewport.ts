@@ -7,7 +7,7 @@
  * Based on Spec.md Section 3.1: TimelineViewport
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import type { TimelineBounds } from '@/types';
 import { dateToNumericValue, numericValueToDate } from '@/lib/dates';
 
@@ -63,6 +63,28 @@ export function useTimelineViewport({
   }, [bounds]);
 
   const [viewport, setViewport] = useState<ViewportState>(initialState);
+
+  // When bounds expand (e.g. new staged events arrive outside current range),
+  // expand the viewport to include the new bounds
+  useEffect(() => {
+    if (!bounds) return;
+
+    const newStart = dateToNumericValue(bounds.viewStart);
+    const newEnd = dateToNumericValue(bounds.viewEnd);
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Syncing viewport with externally-driven bounds expansion
+    setViewport((prev) => {
+      const boundsExpanded = newStart < prev.viewStart || newEnd > prev.viewEnd;
+      if (!boundsExpanded) return prev;
+
+      // Expand viewport to fit all events
+      return {
+        viewStart: Math.min(prev.viewStart, newStart),
+        viewEnd: Math.max(prev.viewEnd, newEnd),
+        zoomLevel: DEFAULT_ZOOM,
+      };
+    });
+  }, [bounds]);
 
   // Get the full range from bounds
   const fullRange = useMemo(() => {

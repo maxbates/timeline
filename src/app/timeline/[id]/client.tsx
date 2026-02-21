@@ -28,6 +28,7 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
   const [isMovingEvents, setIsMovingEvents] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [showApiKeyDialog, setShowApiKeyDialog] = useState(false);
+  const [suggestedTrackName, setSuggestedTrackName] = useState<string | null>(null);
   const chatPanelRef = useRef<ChatPanelHandle>(null);
   const timelineViewerRef = useRef<TimelineViewerHandle>(null);
   const { apiKey, hasApiKey, setApiKey, clearApiKey } = useApiKey();
@@ -111,6 +112,11 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
     [timeline.events]
   );
 
+  // Handle track title suggested by LLM
+  const handleTrackTitleSuggested = useCallback((title: string) => {
+    setSuggestedTrackName(title);
+  }, []);
+
   // Handle events generated from chat
   const handleEventsGenerated = useCallback(
     (events: Partial<TimelineEvent>[]) => {
@@ -149,10 +155,11 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
         };
       });
 
-      // Auto-zoom to new events after a short delay to let state update
+      // Auto-zoom to new events and scroll staging track into view
       setTimeout(() => {
         if (newEventIds.length > 0) {
           timelineViewerRef.current?.zoomToFitEvents(newEventIds);
+          timelineViewerRef.current?.scrollToTrack(stagingTrackId);
         }
       }, 100);
     },
@@ -202,49 +209,72 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
     }
   }, [timeline]);
 
-  // Handle accept staged events - always creates a new track
+  // Handle accept staged events - reuses empty main track or creates a new one
   const handleAcceptStaged = useCallback(async () => {
     const eventIds = stagedEvents.map((e) => e.id);
     if (eventIds.length === 0 || isMovingEvents) return;
 
     setIsMovingEvents(true);
     try {
-      // Pick the next available color
-      const availableColors: Array<'blue' | 'red' | 'purple' | 'orange' | 'pink' | 'teal'> = [
-        'blue',
-        'red',
-        'purple',
-        'orange',
-        'pink',
-        'teal',
-      ];
-      const usedColors = timeline.tracks.filter((t) => t.type !== 'staging').map((t) => t.color);
-      const nextColor = availableColors.find((c) => !usedColors.includes(c)) || availableColors[0];
+      const trackName = suggestedTrackName || 'New Track';
 
-      // Always create a new track
-      const trackResponse = await fetch(`/api/timelines/${timeline.id}/tracks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'New Track',
-          type: 'custom',
-          color: nextColor,
-          order: timeline.tracks.filter((t) => t.type !== 'staging').length, // Don't count staging track
-        }),
-      });
+      // Check if there's an empty main track we can reuse
+      const mainTrack = timeline.tracks.find((t) => t.type === 'main');
+      const mainTrackEvents = mainTrack
+        ? timeline.events.filter((e) => e.trackId === mainTrack.id && e.status === 'confirmed')
+        : [];
+      const emptyMainTrack = mainTrack && mainTrackEvents.length === 0 ? mainTrack : null;
 
-      if (!trackResponse.ok) return;
+      let targetTrack;
 
-      const newTrack = await trackResponse.json();
+      if (emptyMainTrack) {
+        // Reuse the empty main track - rename it
+        const renameResponse = await fetch(
+          `/api/timelines/${timeline.id}/tracks/${emptyMainTrack.id}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: trackName }),
+          }
+        );
+        if (!renameResponse.ok) return;
+        targetTrack = await renameResponse.json();
+      } else {
+        // Create a new track
+        const availableColors: Array<'blue' | 'red' | 'purple' | 'orange' | 'pink' | 'teal'> = [
+          'blue',
+          'red',
+          'purple',
+          'orange',
+          'pink',
+          'teal',
+        ];
+        const usedColors = timeline.tracks.filter((t) => t.type !== 'staging').map((t) => t.color);
+        const nextColor =
+          availableColors.find((c) => !usedColors.includes(c)) || availableColors[0];
 
-      // Move events to new track
+        const trackResponse = await fetch(`/api/timelines/${timeline.id}/tracks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: trackName,
+            type: 'custom',
+            color: nextColor,
+            order: timeline.tracks.filter((t) => t.type !== 'staging').length,
+          }),
+        });
+        if (!trackResponse.ok) return;
+        targetTrack = await trackResponse.json();
+      }
+
+      // Move events to the target track
       const moveResponse = await fetch(`/api/timelines/${timeline.id}/events/move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           eventIds,
-          targetTrackId: newTrack.id,
-          events: stagedEvents, // Send the full event data for client-side staged events
+          targetTrackId: targetTrack.id,
+          events: stagedEvents,
         }),
       });
 
@@ -252,21 +282,26 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
         const { events } = await moveResponse.json();
         setTimeline((prev) => ({
           ...prev,
-          tracks: [...prev.tracks, newTrack],
-          events: [
-            // Remove old staged events (client-side only)
-            ...prev.events.filter((e) => !eventIds.includes(e.id)),
-            // Add new confirmed events from database
-            ...events,
-          ],
+          tracks: emptyMainTrack
+            ? prev.tracks.map((t) => (t.id === targetTrack.id ? targetTrack : t))
+            : [...prev.tracks, targetTrack],
+          events: [...prev.events.filter((e) => !eventIds.includes(e.id)), ...events],
         }));
+        setSuggestedTrackName(null);
       }
     } catch (error) {
       console.error('Failed to accept staged events:', error);
     } finally {
       setIsMovingEvents(false);
     }
-  }, [timeline.id, timeline.tracks, stagedEvents, isMovingEvents]);
+  }, [
+    timeline.id,
+    timeline.tracks,
+    timeline.events,
+    stagedEvents,
+    isMovingEvents,
+    suggestedTrackName,
+  ]);
 
   // Handle reject staged events
   const handleRejectStaged = useCallback(async () => {
@@ -286,6 +321,7 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
           ...prev,
           events: prev.events.filter((e) => !eventIds.includes(e.id)),
         }));
+        setSuggestedTrackName(null);
       }
     } catch (error) {
       console.error('Failed to reject events:', error);
@@ -548,6 +584,7 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
             apiKey={apiKey}
             eventCount={timeline.events.filter((e) => e.status === 'confirmed').length}
             onEventsGenerated={handleEventsGenerated}
+            onTrackTitleSuggested={handleTrackTitleSuggested}
             onEventClick={handleEventClick}
             onLoadingChange={setIsChatLoading}
             onOpenApiKeyDialog={() => setShowApiKeyDialog(true)}

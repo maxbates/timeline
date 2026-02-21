@@ -78,7 +78,7 @@ When generating events, follow these guidelines:
 
 5. **Accuracy**: Ensure dates and facts are historically accurate. When uncertain, indicate approximate dates using year precision.
 
-6. **Response Format**: Use JSONL (JSON Lines) format - one complete event JSON object per line, no wrapping array or object. Each line must be a complete, valid JSON object.`;
+6. **Response Format**: Output JSONL (JSON Lines). The FIRST line must be a track title object: {"trackTitle": "Short Title"} (1-5 words describing the collection of events). Then one complete event JSON object per line. No wrapping array or object.`;
 
 /**
  * Build user prompt for event generation
@@ -99,12 +99,13 @@ function buildUserPrompt(
     prompt += `\nGenerate related events that would complement this one.`;
   }
 
-  prompt += `\n\nRespond in JSONL format (one event per line). Each line should be a complete JSON object like this:
+  prompt += `\n\nRespond in JSONL format. The FIRST line must be a track title (1-5 words describing these events as a group). Then one event per line:
 
+{"trackTitle": "Roman Empire"}
 {"title": "Event Title", "description": "One sentence description.", "longDescription": "Longer description...", "type": "point", "startDate": "YYYY-MM-DD", "datePrecision": "year", "location": {"name": "Location"}, "sources": [{"title": "Source", "url": "https://...", "type": "wikipedia"}], "tags": ["tag1"]}
 {"title": "Another Event", "description": "Another description.", "longDescription": "More context...", "type": "span", "startDate": "YYYY-MM-DD", "endDate": "YYYY-MM-DD", "datePrecision": "year", "sources": [{"title": "Source", "url": "https://...", "type": "article"}], "tags": ["tag2"]}
 
-Do not wrap the events in an array or object. Output one event JSON per line only.`;
+Do not wrap the events in an array or object. Output the track title line first, then one event JSON per line.`;
 
   return prompt;
 }
@@ -186,7 +187,11 @@ export async function* generateEventsStream(
     focusedEvent?: Partial<TimelineEvent>;
     maxEvents?: number;
   }
-): AsyncGenerator<{ type: 'event' | 'done'; event?: LLMEvent }> {
+): AsyncGenerator<{
+  type: 'event' | 'track_title' | 'done';
+  event?: LLMEvent;
+  trackTitle?: string;
+}> {
   const client = getClient(options.apiKey);
 
   const userPrompt = buildUserPrompt(query, options?.bounds, options?.focusedEvent);
@@ -221,6 +226,13 @@ export async function* generateEventsStream(
 
         try {
           const parsed = JSON.parse(trimmed);
+
+          // Check if this is a track title line
+          if (parsed.trackTitle && !parsed.title) {
+            yield { type: 'track_title', trackTitle: parsed.trackTitle };
+            continue;
+          }
+
           const validated = llmEventSchema.parse(parsed);
           parsedEvents.push(validated);
           yield { type: 'event', event: validated };
@@ -236,9 +248,14 @@ export async function* generateEventsStream(
   if (buffer.trim()) {
     try {
       const parsed = JSON.parse(buffer.trim());
-      const validated = llmEventSchema.parse(parsed);
-      parsedEvents.push(validated);
-      yield { type: 'event', event: validated };
+
+      if (parsed.trackTitle && !parsed.title) {
+        yield { type: 'track_title', trackTitle: parsed.trackTitle };
+      } else {
+        const validated = llmEventSchema.parse(parsed);
+        parsedEvents.push(validated);
+        yield { type: 'event', event: validated };
+      }
     } catch {
       // Ignore final parse errors
     }

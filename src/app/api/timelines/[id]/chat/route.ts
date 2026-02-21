@@ -142,7 +142,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
           // Process JSONL stream - each event comes in as a complete object
           for await (const chunk of streamGenerator) {
-            if (chunk.type === 'event' && chunk.event) {
+            if (chunk.type === 'track_title' && chunk.trackTitle) {
+              // Forward the suggested track title to the client
+              await sendEvent({
+                type: 'track_title',
+                title: chunk.trackTitle,
+              });
+            } else if (chunk.type === 'event' && chunk.event) {
               const event = llmEventToTimelineEvent(chunk.event, timelineId, trackId);
               events.push(event);
 

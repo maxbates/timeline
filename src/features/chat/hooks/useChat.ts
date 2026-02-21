@@ -17,6 +17,7 @@ interface UseChatOptions {
   bounds?: TimelineBounds;
   apiKey?: string;
   onEventsGenerated?: (events: Partial<TimelineEvent>[]) => void;
+  onTrackTitleSuggested?: (title: string) => void;
 }
 
 interface UseChatReturn {
@@ -43,6 +44,7 @@ export function useChat({
   bounds,
   apiKey,
   onEventsGenerated,
+  onTrackTitleSuggested,
 }: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -140,6 +142,9 @@ export function useChat({
                         : m
                     )
                   );
+                } else if (parsed.type === 'track_title') {
+                  // LLM suggested a track title for these events
+                  onTrackTitleSuggested?.(parsed.title);
                 } else if (parsed.type === 'event') {
                   // Single event streamed in
                   streamedEvents.push(parsed.event);
@@ -225,7 +230,7 @@ export function useChat({
         abortControllerRef.current = null;
       }
     },
-    [timelineId, stagingTrackId, bounds, apiKey, onEventsGenerated]
+    [timelineId, stagingTrackId, bounds, apiKey, onEventsGenerated, onTrackTitleSuggested]
   );
 
   /**
