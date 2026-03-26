@@ -24,7 +24,12 @@ interface UseChatReturn {
   messages: ChatMessage[];
   isLoading: boolean;
   error: string | null;
-  sendMessage: (content: string, context?: ChatContext) => Promise<void>;
+  sendMessage: (
+    content: string,
+    context?: ChatContext,
+    mode?: 'quick' | 'research',
+    overrideStagingTrackId?: string
+  ) => Promise<void>;
   clearMessages: () => void;
 }
 
@@ -57,7 +62,12 @@ export function useChat({
    * Send a message and receive streaming response
    */
   const sendMessage = useCallback(
-    async (content: string, context?: ChatContext) => {
+    async (
+      content: string,
+      context?: ChatContext,
+      mode?: 'quick' | 'research',
+      overrideStagingTrackId?: string
+    ) => {
       // Cancel any existing request
       abortControllerRef.current?.abort();
       abortControllerRef.current = new AbortController();
@@ -97,7 +107,8 @@ export function useChat({
             message: content,
             context,
             bounds,
-            stagingTrackId,
+            stagingTrackId: overrideStagingTrackId || stagingTrackId,
+            mode,
           }),
           signal: abortControllerRef.current.signal,
         });
@@ -139,6 +150,33 @@ export function useChat({
                     prev.map((m) =>
                       m.id === assistantMessage.id
                         ? { ...m, content: parsed.content || 'Generating...', status: 'streaming' }
+                        : m
+                    )
+                  );
+                } else if (parsed.type === 'sources_found') {
+                  // Research mode: sources found
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantMessage.id
+                        ? {
+                            ...m,
+                            content: `Found ${parsed.sources?.length || 0} sources`,
+                            researchSources: parsed.sources,
+                            status: 'streaming',
+                          }
+                        : m
+                    )
+                  );
+                } else if (parsed.type === 'generating') {
+                  // Research mode: generating from sources
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantMessage.id
+                        ? {
+                            ...m,
+                            content: parsed.content || 'Generating events...',
+                            status: 'streaming',
+                          }
                         : m
                     )
                   );

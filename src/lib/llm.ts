@@ -35,6 +35,7 @@ const llmEventSchema = z.object({
     )
     .default([]),
   tags: z.array(z.string()).optional(),
+  digDeeperSuggestions: z.array(z.string()).max(4).optional().default([]),
 });
 
 const llmResponseSchema = z.object({
@@ -56,7 +57,7 @@ function getClient(apiKey: string): Anthropic {
 /**
  * System prompt for timeline event generation
  */
-const SYSTEM_PROMPT = `You are a timeline event generator. Your task is to generate historical or topical events for a timeline visualization application.
+export const SYSTEM_PROMPT = `You are a timeline event generator. Your task is to generate historical or topical events for a timeline visualization application.
 
 When generating events, follow these guidelines:
 
@@ -186,6 +187,7 @@ export async function* generateEventsStream(
     bounds?: TimelineBounds;
     focusedEvent?: Partial<TimelineEvent>;
     maxEvents?: number;
+    systemPrompt?: string;
   }
 ): AsyncGenerator<{
   type: 'event' | 'track_title' | 'done';
@@ -199,7 +201,7 @@ export async function* generateEventsStream(
   const stream = client.messages.stream({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 4096,
-    system: SYSTEM_PROMPT,
+    system: options.systemPrompt ?? SYSTEM_PROMPT,
     messages: [
       {
         role: 'user',

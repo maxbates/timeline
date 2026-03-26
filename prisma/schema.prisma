@@ -42,19 +42,22 @@ model Timeline {
 }
 
 model Track {
-  id         String   @id @default(uuid())
-  timelineId String
-  timeline   Timeline @relation(fields: [timelineId], references: [id], onDelete: Cascade)
-  name       String   @db.VarChar(50)
-  type       String   @default("main") // 'main' | 'staging' | 'custom'
-  color      String   @default("blue") // TrackColor
-  order      Int      @default(0)
-  visible    Boolean  @default(true)
-  metadata   Json?
+  id             String   @id @default(uuid())
+  timelineId     String
+  timeline       Timeline @relation(fields: [timelineId], references: [id], onDelete: Cascade)
+  name           String   @db.VarChar(50)
+  type           String   @default("main") // 'main' | 'staging' | 'custom'
+  color          String   @default("blue") // TrackColor
+  order          Int      @default(0)
+  visible        Boolean  @default(true)
+  metadata       Json?
+  parentTrackId  String?  // Track this was derived from (dig deeper)
+  parentEventId  String?  // Event that spawned this track (dig deeper)
 
   events TimelineEvent[]
 
   @@index([timelineId])
+  @@index([parentEventId])
 }
 
 model TimelineEvent {
@@ -86,6 +89,18 @@ model TimelineEvent {
   @@index([timelineId])
   @@index([trackId])
   @@index([startDate])
+}
+
+model WikipediaCache {
+  id        String   @id @default(uuid())
+  cacheKey  String   @unique
+  cacheType String   // "search" | "extract" | "image"
+  data      Json
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([cacheKey])
+  @@index([expiresAt])
 }
 
 // Note: ChatMessage is NOT persisted to database (ephemeral, session-only)
