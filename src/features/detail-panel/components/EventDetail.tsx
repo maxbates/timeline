@@ -13,6 +13,7 @@ import { formatDateForDisplay } from '@/lib/dates';
 import { TRACK_COLORS } from '@/types';
 import { EventLocation } from './EventLocation';
 import { EventSources } from './EventSources';
+import { DigDeeperSection } from './DigDeeperSection';
 import { PressAndHoldButton } from '@/components/PressAndHoldButton';
 
 interface EventDetailProps {
@@ -22,6 +23,8 @@ interface EventDetailProps {
   onLearnMore?: () => void;
   onUpdateEvent?: (eventId: string, updates: Partial<TimelineEvent>) => void;
   onDelete?: (eventId: string) => void;
+  onDigDeeper?: (prompt: string) => void;
+  isDigDeeperGenerating?: boolean;
 }
 
 function EventDetailComponent({
@@ -31,6 +34,8 @@ function EventDetailComponent({
   onLearnMore: _onLearnMore,
   onUpdateEvent,
   onDelete,
+  onDigDeeper,
+  isDigDeeperGenerating = false,
 }: EventDetailProps) {
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [expandedDescription, setExpandedDescription] = useState('');
@@ -129,38 +134,50 @@ function EventDetailComponent({
   // Use expanded description if we're loading or have loaded more details
   const displayDescription = expandedDescription || event.longDescription;
 
+  // Detect research-enriched event
+  const metadata = (event.metadata ?? {}) as Record<string, unknown>;
+  const imageUrl = (metadata.imageUrl as string) || (metadata.thumbnailUrl as string) || null;
+  const digDeeperSuggestions = (metadata.digDeeperSuggestions as string[]) || [];
+  const [heroLoaded, setHeroLoaded] = useState(false);
+  const [heroError, setHeroError] = useState(false);
+  const [heroHovered, setHeroHovered] = useState(false);
+
+  // Reset hero state when event changes
+  useEffect(() => {
+    setHeroLoaded(false);
+    setHeroError(false);
+    setHeroHovered(false);
+  }, [event.id]);
+
+  // Determine if we have right-side content
+  const hasRightContent =
+    hasMap ||
+    (onDigDeeper && digDeeperSuggestions.length > 0) ||
+    (event.tags && event.tags.length > 0) ||
+    (event.sources && event.sources.length > 0) ||
+    event.location?.name;
+  const showHeroImage = imageUrl && !heroError;
+
   return (
     <div className="flex h-full flex-col">
-      {/* Header with track color indicator and actions - fixed at top */}
-      <div className="flex-shrink-0 border-b border-gray-200 bg-white p-4">
+      {/* Header with track color indicator and actions */}
+      <div className="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-3">
         <div className="flex items-start gap-3">
-          {/* Track color indicator */}
           <div
             className="mt-1 h-3 w-3 flex-shrink-0 rounded-full"
             style={{ backgroundColor: trackColor }}
           />
-
           <div className="min-w-0 flex-1">
-            {/* Event title */}
             <h2 className="text-lg font-semibold text-gray-900">{event.title}</h2>
-
-            {/* Date */}
-            <p className="mt-1 text-sm text-gray-500">{dateDisplay}</p>
-
-            {/* Track name */}
+            <p className="mt-0.5 text-sm text-gray-500">{dateDisplay}</p>
             {track && <p className="mt-0.5 text-xs text-gray-400">{track.name}</p>}
           </div>
-
-          {/* Right side: Status badge and delete button */}
           <div className="flex items-start gap-2">
-            {/* Status badge for staged events */}
             {event.status === 'staged' && (
               <span className="flex-shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
                 Staged
               </span>
             )}
-
-            {/* Delete button - press and hold */}
             {onDelete && (
               <PressAndHoldButton
                 onComplete={handleDelete}
@@ -180,214 +197,149 @@ function EventDetailComponent({
             )}
           </div>
         </div>
-
-        {/* Action buttons for staged events */}
-        {event.status === 'staged' && (
-          <div className="mt-3 flex items-center gap-2">
-            <button className="rounded-lg bg-green-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-green-600">
-              Accept
-            </button>
-            <button className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">
-              Reject
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* Content - scrollable */}
-      <div className="flex-1 overflow-hidden">
-        {hasMap ? (
-          /* Split layout: content on left, map on right */
-          <div className="flex h-full">
-            {/* Left: Text content - scrollable */}
-            <div className="flex-1 overflow-y-auto border-r border-gray-200 p-4">
-              <div className="space-y-6">
-                {/* Short description */}
-                <div>
-                  <p className="text-sm text-gray-700">{event.description}</p>
-                </div>
-
-                {/* Learn More button */}
-                <div>
-                  <button
-                    onClick={handleLearnMoreClick}
-                    disabled={isLoadingDetails}
-                    className="flex items-center gap-1.5 rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {isLoadingDetails ? (
-                      <>
-                        <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            strokeWidth="4"
-                          />
-                          <path
-                            className="opacity-75"
-                            fill="currentColor"
-                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                          />
-                        </svg>
-                        Loading...
-                      </>
-                    ) : (
-                      <>
-                        <svg
-                          className="h-4 w-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                        Learn More
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {/* Long description */}
-                {displayDescription && (
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Details</h4>
-                    <p className="mt-1.5 text-sm leading-relaxed whitespace-pre-wrap text-gray-700">
-                      {displayDescription}
-                    </p>
-                  </div>
-                )}
-
-                {/* Location name */}
-                {event.location && (
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Location</h4>
-                    <div className="mt-1.5 flex items-center gap-2 text-gray-700">
-                      <svg
-                        className="h-4 w-4 text-gray-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                      </svg>
-                      <span className="text-sm">{event.location.name}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Tags */}
-                {event.tags && event.tags.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Tags</h4>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {event.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Sources */}
-                <EventSources sources={event.sources} />
+      {/* Content — two-column layout */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left column: image + text */}
+        <div
+          className={`flex flex-col overflow-y-auto ${hasRightContent ? 'flex-1 border-r border-gray-200' : 'flex-1'}`}
+        >
+          {/* Hero image */}
+          {showHeroImage && (
+            <div
+              className="relative flex-shrink-0 overflow-hidden"
+              style={{ minHeight: '200px', maxHeight: '300px' }}
+              onMouseEnter={() => setHeroHovered(true)}
+              onMouseLeave={() => setHeroHovered(false)}
+            >
+              {!heroLoaded && <div className="absolute inset-0 animate-pulse bg-gray-100" />}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imageUrl}
+                alt={event.title}
+                className={`h-full w-full object-cover transition-opacity duration-300 ${
+                  heroHovered ? 'opacity-100' : 'opacity-35'
+                }`}
+                onLoad={() => setHeroLoaded(true)}
+                onError={() => setHeroError(true)}
+              />
+              <div
+                className={`absolute inset-0 flex flex-col justify-end p-4 transition-all duration-300 ${
+                  heroHovered ? 'opacity-0' : 'opacity-100'
+                }`}
+              >
+                <p className="text-xs text-white/60">Wikimedia Commons</p>
               </div>
             </div>
+          )}
 
-            {/* Right: Map - full height, fixed width */}
-            <div className="w-80 flex-shrink-0 bg-gray-50">
-              <EventLocation location={event.location!} mapOnly fullHeight />
-            </div>
+          {/* Text content */}
+          <div className="space-y-4 p-4">
+            <p className="text-sm text-gray-700">{event.description}</p>
+
+            <button
+              onClick={handleLearnMoreClick}
+              disabled={isLoadingDetails}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoadingDetails ? (
+                <>
+                  <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    />
+                  </svg>
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  Learn More
+                </>
+              )}
+            </button>
+
+            {displayDescription && (
+              <div>
+                <h4 className="text-sm font-medium text-gray-500">Details</h4>
+                <p className="mt-1.5 text-sm leading-relaxed whitespace-pre-wrap text-gray-700">
+                  {displayDescription}
+                </p>
+              </div>
+            )}
           </div>
-        ) : (
-          /* Normal layout: everything stacked - scrollable */
-          <div className="h-full overflow-y-auto p-4">
-            <div className="space-y-6">
-              {/* Short description */}
-              <div>
-                <p className="text-sm text-gray-700">{event.description}</p>
-              </div>
+        </div>
 
-              {/* Learn More button */}
-              <div>
-                <button
-                  onClick={handleLearnMoreClick}
-                  disabled={isLoadingDetails}
-                  className="flex items-center gap-1.5 rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isLoadingDetails ? (
-                    <>
-                      <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                        />
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                        />
-                      </svg>
-                      Loading...
-                    </>
-                  ) : (
-                    <>
-                      <svg
-                        className="h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      Learn More
-                    </>
-                  )}
-                </button>
+        {/* Right column: map + metadata (only render if there's content) */}
+        {hasRightContent && (
+          <div className="flex w-72 flex-shrink-0 flex-col overflow-y-auto">
+            {/* Map */}
+            {hasMap && (
+              <div
+                className="flex-shrink-0 border-b border-gray-200"
+                style={{ minHeight: '200px', maxHeight: '300px' }}
+              >
+                <EventLocation location={event.location!} mapOnly fullHeight />
               </div>
+            )}
 
-              {/* Long description */}
-              {displayDescription && (
+            {/* Metadata */}
+            <div className="space-y-4 p-4">
+              {/* Location name */}
+              {event.location?.name && (
                 <div>
-                  <h4 className="text-sm font-medium text-gray-500">Details</h4>
-                  <p className="mt-1.5 text-sm leading-relaxed whitespace-pre-wrap text-gray-700">
-                    {displayDescription}
-                  </p>
+                  <h4 className="text-sm font-medium text-gray-500">Location</h4>
+                  <div className="mt-1.5 flex items-center gap-2 text-gray-700">
+                    <svg
+                      className="h-4 w-4 text-gray-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
+                    </svg>
+                    <span className="text-sm">{event.location.name}</span>
+                  </div>
                 </div>
               )}
 
-              {/* Location */}
-              {event.location && <EventLocation location={event.location} />}
+              {/* Dig Deeper */}
+              {onDigDeeper && digDeeperSuggestions.length > 0 && (
+                <DigDeeperSection
+                  suggestions={digDeeperSuggestions}
+                  onDigDeeper={onDigDeeper}
+                  isGenerating={isDigDeeperGenerating}
+                />
+              )}
 
               {/* Tags */}
               {event.tags && event.tags.length > 0 && (

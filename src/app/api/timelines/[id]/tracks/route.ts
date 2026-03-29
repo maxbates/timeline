@@ -12,7 +12,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const { id: timelineId } = await params;
     const body = await request.json();
-    const { name, type, color, order } = body;
+    const { name, type, color, order, parentTrackId, parentEventId } = body;
 
     // Create the track
     const track = await prisma.track.create({
@@ -23,6 +23,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         color: color || 'purple',
         order: order ?? 0,
         visible: true,
+        parentTrackId: parentTrackId || undefined,
+        parentEventId: parentEventId || undefined,
       },
     });
 

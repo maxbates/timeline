@@ -7,9 +7,20 @@
 
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { generateEventsStream, getEventDetailsStream, type LLMEvent } from '@/lib/llm';
+import {
+  generateEventsStream,
+  getEventDetailsStream,
+  SYSTEM_PROMPT,
+  type LLMEvent,
+} from '@/lib/llm';
 import type { TimelineEvent, TimelineBounds } from '@/types';
 import { prisma } from '@/lib/db';
+import {
+  gatherSources,
+  buildResearchPrompt,
+  validateCitations,
+  enrichEventWithImage,
+} from '@/lib/research';
 
 // Request validation schema
 const chatRequestSchema = z.object({
@@ -30,6 +41,7 @@ const chatRequestSchema = z.object({
     })
     .optional(),
   stagingTrackId: z.string().optional(),
+  mode: z.enum(['quick', 'research']).default('research'),
 });
 
 // Counter to ensure unique IDs within a single request
@@ -39,7 +51,7 @@ let eventCounter = 0;
  * Convert LLM event to staged TimelineEvent (client-side only, not persisted)
  */
 function llmEventToTimelineEvent(
-  llmEvent: LLMEvent,
+  llmEvent: LLMEvent & { metadata?: Record<string, unknown> },
   timelineId: string,
   trackId: string
 ): Partial<TimelineEvent> {
@@ -61,6 +73,10 @@ function llmEventToTimelineEvent(
     status: 'staged',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    metadata: {
+      ...((llmEvent.metadata as Record<string, unknown>) ?? {}),
+      digDeeperSuggestions: llmEvent.digDeeperSuggestions ?? [],
+    },
   };
 }
 
@@ -79,7 +95,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     // Parse and validate request body
     const body = await request.json();
-    const { message, context, bounds, stagingTrackId } = chatRequestSchema.parse(body);
+    const { message, context, bounds, stagingTrackId, mode } = chatRequestSchema.parse(body);
 
     // Create a TransformStream for SSE
     const encoder = new TextEncoder();
@@ -130,42 +146,104 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           await sendEvent({ type: 'done' });
         } else {
           // Default: generate events
-          await sendEvent({ type: 'loading', content: 'Generating events...' });
+          const events: Partial<TimelineEvent>[] = [];
+          const trackId = stagingTrackId || `staging_${timelineId}`;
+
+          let systemPrompt: string | undefined;
+          let researchSources: Array<{
+            title: string;
+            url: string;
+            imageUrl?: string;
+            thumbnailUrl?: string;
+            pageid: number;
+            extract: string;
+          }> = [];
+
+          // Research mode: gather Wikipedia sources first
+          if (mode === 'research') {
+            await sendEvent({ type: 'loading', content: 'Searching Wikipedia...' });
+
+            try {
+              const researchContext = await gatherSources(message, {
+                tokenBudget: 8000,
+              });
+              researchSources = researchContext.sources;
+
+              if (researchSources.length > 0) {
+                await sendEvent({
+                  type: 'sources_found',
+                  sources: researchSources.map((s) => ({
+                    title: s.title,
+                    url: s.url,
+                    thumbnailUrl: s.thumbnailUrl,
+                  })),
+                });
+
+                await sendEvent({
+                  type: 'generating',
+                  content: `Generating events from ${researchSources.length} sources...`,
+                });
+
+                systemPrompt = buildResearchPrompt(SYSTEM_PROMPT, researchSources);
+              } else {
+                // No Wikipedia results — fall back to quick mode
+                await sendEvent({
+                  type: 'loading',
+                  content: 'No Wikipedia sources found. Generating from AI knowledge...',
+                });
+              }
+            } catch (error) {
+              // Wikipedia fetch failed — fall back to quick mode
+              console.warn('Research source gathering failed, falling back to quick mode:', error);
+              await sendEvent({
+                type: 'loading',
+                content: 'Sources unavailable. Generating from AI knowledge...',
+              });
+            }
+          } else {
+            await sendEvent({ type: 'loading', content: 'Generating events...' });
+          }
 
           const streamGenerator = generateEventsStream(message, {
             apiKey,
             bounds: bounds as TimelineBounds | undefined,
+            systemPrompt,
           });
-
-          const events: Partial<TimelineEvent>[] = [];
-          const trackId = stagingTrackId || `staging_${timelineId}`;
 
           // Process JSONL stream - each event comes in as a complete object
           for await (const chunk of streamGenerator) {
             if (chunk.type === 'track_title' && chunk.trackTitle) {
-              // Forward the suggested track title to the client
               await sendEvent({
                 type: 'track_title',
                 title: chunk.trackTitle,
               });
             } else if (chunk.type === 'event' && chunk.event) {
-              const event = llmEventToTimelineEvent(chunk.event, timelineId, trackId);
+              // In research mode: validate citations and enrich with images
+              let processedEvent = chunk.event;
+              if (mode === 'research' && researchSources.length > 0) {
+                processedEvent = validateCitations(processedEvent, researchSources);
+                processedEvent = enrichEventWithImage(processedEvent, researchSources);
+              }
+
+              const event = llmEventToTimelineEvent(processedEvent, timelineId, trackId);
               events.push(event);
 
-              // Stream this event to the client immediately (client-side only, not persisted yet)
               await sendEvent({
                 type: 'event',
                 event,
               });
             } else if (chunk.type === 'done') {
-              // Streaming complete
               break;
             }
           }
 
           // Send final summary
           if (events.length > 0) {
-            const summaryMessage = `Generated ${events.length} event${events.length === 1 ? '' : 's'}.`;
+            const sourceInfo =
+              mode === 'research' && researchSources.length > 0
+                ? ` from ${researchSources.length} Wikipedia sources`
+                : '';
+            const summaryMessage = `Generated ${events.length} event${events.length === 1 ? '' : 's'}${sourceInfo}.`;
             await sendEvent({ type: 'text', content: summaryMessage });
             await sendEvent({
               type: 'events',

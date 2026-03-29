@@ -113,6 +113,10 @@ export interface Track {
   order: number; // Display order (lower = higher on screen)
   visible: boolean;
 
+  // Parent references (dig deeper / sub-tracks)
+  parentTrackId?: string | null; // Track this was derived from
+  parentEventId?: string | null; // Event that spawned this track
+
   // Extensibility
   metadata?: Record<string, unknown>;
 }

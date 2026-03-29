@@ -120,6 +120,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           location: stagedEvent.location,
           sources: stagedEvent.sources || [],
           tags: stagedEvent.tags || [],
+          metadata: stagedEvent.metadata || undefined,
           status: 'confirmed',
         }));
 

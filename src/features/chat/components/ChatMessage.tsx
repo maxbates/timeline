@@ -7,7 +7,7 @@
  * Based on Spec.md Section 2.8: Chat Panel
  */
 
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import type { ChatMessage as ChatMessageType } from '@/types';
 
 interface ChatMessageProps {
@@ -20,6 +20,7 @@ function ChatMessageComponent({ message, onEventClick }: ChatMessageProps) {
   const isAssistant = message.role === 'assistant';
   const isStreaming = message.status === 'streaming';
   const hasError = message.status === 'error';
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3`}>
@@ -36,7 +37,51 @@ function ChatMessageComponent({ message, onEventClick }: ChatMessageProps) {
         {message.content && (
           <div className="text-sm leading-relaxed whitespace-pre-wrap">
             {message.content}
-            {isStreaming && <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-current" />}
+            {isStreaming && !message.generatedEvents?.length && (
+              <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-current" />
+            )}
+          </div>
+        )}
+
+        {/* Research sources (expandable) */}
+        {isAssistant && message.researchSources && message.researchSources.length > 0 && (
+          <div className="mt-1">
+            <button
+              onClick={() => setSourcesExpanded(!sourcesExpanded)}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
+              aria-expanded={sourcesExpanded}
+            >
+              <svg
+                className={`h-3 w-3 transition-transform ${sourcesExpanded ? 'rotate-90' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5l7 7-7 7"
+                />
+              </svg>
+              {message.researchSources.length} Wikipedia source
+              {message.researchSources.length === 1 ? '' : 's'}
+            </button>
+            {sourcesExpanded && (
+              <div className="mt-1 space-y-0.5 pl-4">
+                {message.researchSources.map((source) => (
+                  <a
+                    key={source.url}
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block truncate text-xs text-blue-600 hover:underline"
+                  >
+                    {source.title}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

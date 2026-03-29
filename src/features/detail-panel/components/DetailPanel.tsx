@@ -18,6 +18,8 @@ interface DetailPanelProps {
   onLearnMore?: () => void;
   onUpdateEvent?: (eventId: string, updates: Partial<TimelineEvent>) => void;
   onDelete?: (eventId: string) => void;
+  onDigDeeper?: (prompt: string) => void;
+  isDigDeeperGenerating?: boolean;
   className?: string;
 }
 
@@ -28,6 +30,8 @@ function DetailPanelComponent({
   onLearnMore,
   onUpdateEvent,
   onDelete,
+  onDigDeeper,
+  isDigDeeperGenerating,
   className = '',
 }: DetailPanelProps) {
   return (
@@ -40,6 +44,8 @@ function DetailPanelComponent({
           onLearnMore={onLearnMore}
           onUpdateEvent={onUpdateEvent}
           onDelete={onDelete}
+          onDigDeeper={onDigDeeper}
+          isDigDeeperGenerating={isDigDeeperGenerating}
         />
       ) : (
         <EmptyState />

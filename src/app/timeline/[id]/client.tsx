@@ -42,43 +42,54 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
   // Create a client-side staging track ID
   const stagingTrackId = `staging_${timeline.id}`;
 
-  // Create timeline with dynamic staging track (client-side only, not persisted)
+  // Track parent event ID for the current dig deeper session
+  const [digDeeperParentEventId, setDigDeeperParentEventId] = useState<string | null>(null);
+
+  // Create timeline with dynamic staging tracks (client-side only, not persisted)
   // The staging track should ALWAYS be present, but TimelineCanvas will hide it when empty
   const timelineWithStaging = useMemo(() => {
-    // Check if we already have a staging track
-    const hasStagingTrack = timeline.tracks.some((t) => t.type === 'staging');
+    const stagingTracks: Array<{
+      id: string;
+      timelineId: string;
+      name: string;
+      type: 'staging';
+      color: 'green';
+      order: number;
+      visible: boolean;
+    }> = [];
 
-    console.log('timelineWithStaging recalculating:', {
-      stagedEventsCount: stagedEvents.length,
-      hasStagingTrack,
-      stagingTrackId,
-      timelineTracks: timeline.tracks.map((t) => ({ id: t.id, type: t.type })),
-    });
+    // Collect all unique staging track IDs referenced by staged events
+    const stagingTrackIds = new Set<string>();
+    stagingTrackIds.add(stagingTrackId); // Always include the default
+    for (const event of timeline.events) {
+      if (event.status === 'staged' && event.trackId?.startsWith('staging_')) {
+        stagingTrackIds.add(event.trackId);
+      }
+    }
 
-    // If staging track doesn't exist, add it
-    if (!hasStagingTrack) {
-      console.log('Adding staging track with ID:', stagingTrackId);
+    // Create client-side staging tracks for any that don't exist
+    for (const stId of stagingTrackIds) {
+      if (!timeline.tracks.some((t) => t.id === stId)) {
+        stagingTracks.push({
+          id: stId,
+          timelineId: timeline.id,
+          name: 'Staging',
+          type: 'staging' as const,
+          color: 'green' as const,
+          order: 999,
+          visible: true,
+        });
+      }
+    }
+
+    if (stagingTracks.length > 0) {
       return {
         ...timeline,
-        tracks: [
-          ...timeline.tracks,
-          {
-            id: stagingTrackId,
-            timelineId: timeline.id,
-            name: 'Staging',
-            type: 'staging' as const,
-            color: 'green' as const,
-            order: 999, // Put at the end
-            visible: true,
-          },
-        ],
+        tracks: [...timeline.tracks, ...stagingTracks],
       };
     }
 
-    // Staging track already exists, return timeline as-is
-    console.log('Staging track already exists, returning timeline as-is');
     return timeline;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeline, stagingTrackId]);
 
   // Calculate bounds
@@ -121,33 +132,17 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
   const handleEventsGenerated = useCallback(
     (events: Partial<TimelineEvent>[]) => {
       const newEventIds: string[] = [];
+      // Use the track ID from the events themselves (set by chat API), fall back to default
+      const targetStagingId = events[0]?.trackId || stagingTrackId;
 
       setTimeline((prev) => {
         const newEvents = events.map((e) => ({
           ...e,
-          trackId: e.trackId || stagingTrackId, // Ensure trackId is set
+          trackId: e.trackId || targetStagingId,
           status: (e.status || 'staged') as 'staged' | 'confirmed',
         })) as TimelineEvent[];
 
-        // Store IDs for zoom
         newEventIds.push(...newEvents.map((e) => e.id));
-
-        console.log('Adding staged events:', {
-          count: newEvents.length,
-          expectedTrackId: stagingTrackId,
-          newEvents: newEvents.map((e) => ({
-            id: e.id,
-            title: e.title,
-            trackId: e.trackId,
-            status: e.status,
-          })),
-          allEventsAfter: [...prev.events, ...newEvents].map((e) => ({
-            id: e.id,
-            title: e.title,
-            trackId: e.trackId,
-            status: e.status,
-          })),
-        });
 
         return {
           ...prev,
@@ -159,7 +154,7 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
       setTimeout(() => {
         if (newEventIds.length > 0) {
           timelineViewerRef.current?.zoomToFitEvents(newEventIds);
-          timelineViewerRef.current?.scrollToTrack(stagingTrackId);
+          timelineViewerRef.current?.scrollToTrack(targetStagingId);
         }
       }, 100);
     },
@@ -218,8 +213,12 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
     try {
       const trackName = suggestedTrackName || 'New Track';
 
-      // Check if there's an empty main track we can reuse
-      const mainTrack = timeline.tracks.find((t) => t.type === 'main');
+      // Check if these are dig-deeper events (have a dig-deep staging track)
+      const isDigDeeper = stagedEvents.some((e) => e.trackId?.startsWith('staging_digdeep_'));
+      const parentEventId = isDigDeeper ? digDeeperParentEventId : null;
+
+      // Check if there's an empty main track we can reuse (only for non-dig-deeper)
+      const mainTrack = !isDigDeeper ? timeline.tracks.find((t) => t.type === 'main') : null;
       const mainTrackEvents = mainTrack
         ? timeline.events.filter((e) => e.trackId === mainTrack.id && e.status === 'confirmed')
         : [];
@@ -253,6 +252,13 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
         const nextColor =
           availableColors.find((c) => !usedColors.includes(c)) || availableColors[0];
 
+        // Find parent track for dig-deeper events
+        const parentTrackId = parentEventId
+          ? timeline.tracks.find((t) =>
+              timeline.events.some((e) => e.id === parentEventId && e.trackId === t.id)
+            )?.id
+          : undefined;
+
         const trackResponse = await fetch(`/api/timelines/${timeline.id}/tracks`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -261,6 +267,8 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
             type: 'custom',
             color: nextColor,
             order: timeline.tracks.filter((t) => t.type !== 'staging').length,
+            parentEventId: parentEventId || undefined,
+            parentTrackId: parentTrackId || undefined,
           }),
         });
         if (!trackResponse.ok) return;
@@ -288,6 +296,9 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
           events: [...prev.events.filter((e) => !eventIds.includes(e.id)), ...events],
         }));
         setSuggestedTrackName(null);
+        // Reset dig deeper state
+
+        setDigDeeperParentEventId(null);
       }
     } catch (error) {
       console.error('Failed to accept staged events:', error);
@@ -301,6 +312,7 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
     stagedEvents,
     isMovingEvents,
     suggestedTrackName,
+    digDeeperParentEventId,
   ]);
 
   // Handle reject staged events
@@ -322,6 +334,9 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
           events: prev.events.filter((e) => !eventIds.includes(e.id)),
         }));
         setSuggestedTrackName(null);
+        // Reset dig deeper state
+
+        setDigDeeperParentEventId(null);
       }
     } catch (error) {
       console.error('Failed to reject events:', error);
@@ -356,7 +371,7 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
     [timeline.id]
   );
 
-  // Handle delete event
+  // Handle delete event — also removes child tracks (dig deeper)
   const handleDeleteEvent = useCallback(
     async (eventId: string) => {
       try {
@@ -365,17 +380,32 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
         });
 
         if (response.ok) {
+          // Find child tracks spawned by this event
+          const childTrackIds = timeline.tracks
+            .filter((t) => t.parentEventId === eventId)
+            .map((t) => t.id);
+
           setTimeline((prev) => ({
             ...prev,
-            events: prev.events.filter((e) => e.id !== eventId),
+            events: prev.events.filter(
+              (e) => e.id !== eventId && !childTrackIds.includes(e.trackId)
+            ),
+            tracks: prev.tracks.filter((t) => t.parentEventId !== eventId),
           }));
           setSelectedEvent(null);
+
+          // Delete child tracks from DB
+          for (const trackId of childTrackIds) {
+            fetch(`/api/timelines/${timeline.id}/tracks/${trackId}`, {
+              method: 'DELETE',
+            }).catch(() => {});
+          }
         }
       } catch (error) {
         console.error('Failed to delete event:', error);
       }
     },
-    [timeline.id]
+    [timeline.id, timeline.tracks]
   );
 
   // Handle track name change
@@ -426,7 +456,7 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
     [timeline.id]
   );
 
-  // Handle track deletion
+  // Handle track deletion — also removes child tracks (dig deeper subtracks)
   const handleDeleteTrack = useCallback(
     async (trackId: string) => {
       try {
@@ -435,18 +465,42 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
         });
 
         if (response.ok) {
+          // Find all descendant tracks (children of this track)
+          const childTrackIds = timeline.tracks
+            .filter((t) => t.parentTrackId === trackId)
+            .map((t) => t.id);
+          const allRemovedTrackIds = [trackId, ...childTrackIds];
+
           setTimeline((prev) => ({
             ...prev,
-            tracks: prev.tracks.filter((t) => t.id !== trackId),
-            // Also remove events from this track
-            events: prev.events.filter((e) => e.trackId !== trackId),
+            tracks: prev.tracks.filter((t) => !allRemovedTrackIds.includes(t.id)),
+            events: prev.events.filter((e) => !allRemovedTrackIds.includes(e.trackId)),
           }));
+
+          // Delete child tracks from DB
+          for (const childId of childTrackIds) {
+            fetch(`/api/timelines/${timeline.id}/tracks/${childId}`, {
+              method: 'DELETE',
+            }).catch(() => {});
+          }
         }
       } catch (error) {
         console.error('Failed to delete track:', error);
       }
     },
-    [timeline.id]
+    [timeline.id, timeline.tracks]
+  );
+
+  // Handle dig deeper from event detail panel — creates a new staging track per event
+  const handleDigDeeper = useCallback(
+    (prompt: string) => {
+      if (!chatPanelRef.current || !selectedEvent) return;
+      // Create a unique staging track ID for this dig-deeper session
+      const digDeepStagingId = `staging_digdeep_${selectedEvent.id}`;
+      setDigDeeperParentEventId(selectedEvent.id);
+      chatPanelRef.current.sendMessage(prompt, undefined, 'research', digDeepStagingId);
+    },
+    [selectedEvent]
   );
 
   // Handle chat about track
@@ -568,6 +622,8 @@ export function TimelineViewerClient({ timeline: initialTimeline }: TimelineView
                 apiKey={apiKey}
                 onUpdateEvent={handleUpdateEvent}
                 onDelete={handleDeleteEvent}
+                onDigDeeper={handleDigDeeper}
+                isDigDeeperGenerating={isChatLoading}
                 className="h-full"
               />
             </aside>

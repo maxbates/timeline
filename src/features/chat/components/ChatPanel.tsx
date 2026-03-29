@@ -20,6 +20,7 @@ import type { TimelineBounds, TimelineEvent, ChatContext } from '@/types';
 import { useChat } from '../hooks/useChat';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
+import type { ChatMode } from './ModeToggle';
 
 interface ChatPanelProps {
   timelineId: string;
@@ -37,7 +38,12 @@ interface ChatPanelProps {
 }
 
 export interface ChatPanelHandle {
-  sendMessage: (content: string, context?: ChatContext) => Promise<void>;
+  sendMessage: (
+    content: string,
+    context?: ChatContext,
+    mode?: ChatMode,
+    overrideStagingTrackId?: string
+  ) => Promise<void>;
 }
 
 function ChatPanelComponent(
@@ -77,9 +83,14 @@ function ChatPanelComponent(
     onLoadingChange?.(isLoading);
   }, [isLoading, onLoadingChange]);
 
-  // Expose sendMessage to parent via ref
+  // Expose sendMessage to parent via ref (supports optional staging track override for dig deeper)
   useImperativeHandle(ref, () => ({
-    sendMessage,
+    sendMessage: (
+      content: string,
+      context?: ChatContext,
+      mode?: ChatMode,
+      overrideStagingTrackId?: string
+    ) => sendMessage(content, context, mode, overrideStagingTrackId),
   }));
 
   // Scroll to bottom when new messages arrive
@@ -89,9 +100,9 @@ function ChatPanelComponent(
 
   // Handle sending a message
   const handleSend = useCallback(
-    (content: string) => {
+    (content: string, mode?: 'quick' | 'research') => {
       // Always send without context - chat is for generating events only
-      sendMessage(content, undefined);
+      sendMessage(content, undefined, mode);
     },
     [sendMessage]
   );
@@ -116,13 +127,13 @@ function ChatPanelComponent(
     }
   }, [timelineId, apiKey]);
 
-  // Handle suggestion click
+  // Handle suggestion click — uses research mode by default
   const handleSuggestionClick = useCallback(
     (suggestion: string) => {
       // Remove the used suggestion
       setSuggestions((prev) => prev.filter((s) => s !== suggestion));
-      // Send the suggestion as a message
-      handleSend(suggestion);
+      // Send the suggestion as a message in research mode
+      handleSend(suggestion, 'research');
     },
     [handleSend]
   );
@@ -180,12 +191,13 @@ function ChatPanelComponent(
       <ChatInput
         onSend={handleSend}
         disabled={isLoading || disabled || !apiKey}
+        isGenerating={isLoading}
         placeholder={
           !apiKey
             ? 'Set your API key to start...'
             : disabled
               ? 'Accept or reject staged events first...'
-              : 'Ask me to generate events...'
+              : 'Type a topic to explore...'
         }
       />
     </div>

@@ -23,6 +23,9 @@ export interface ChatMessage {
   generatedEventIds?: string[]; // References to staged events
   generatedEvents?: Array<{ id?: string; title?: string }>; // Event data for display
 
+  // Research mode data
+  researchSources?: Array<{ title: string; url: string; thumbnailUrl?: string }>;
+
   createdAt: string; // ISO 8601
 
   // For streaming responses
@@ -44,4 +47,5 @@ export interface ChatContext {
 export interface SendChatMessageRequest {
   message: string;
   context?: ChatContext;
+  mode?: 'quick' | 'research';
 }

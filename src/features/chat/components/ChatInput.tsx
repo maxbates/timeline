@@ -3,23 +3,39 @@
 /**
  * ChatInput Component
  *
- * Text input with send button for chat messages.
+ * Text input with send button and Quick/Research mode toggle.
  * Based on Spec.md Section 2.8: Chat Panel
  */
 
 import { memo, useState, useCallback, useRef, useEffect } from 'react';
+import { ModeToggle, type ChatMode } from './ModeToggle';
+
+const MODE_STORAGE_KEY = 'timeline-mode';
+
+function getInitialMode(): ChatMode {
+  try {
+    const stored = localStorage.getItem(MODE_STORAGE_KEY);
+    if (stored === 'quick' || stored === 'research') return stored;
+  } catch {
+    // localStorage unavailable
+  }
+  return 'research';
+}
 
 interface ChatInputProps {
-  onSend: (message: string) => void;
+  onSend: (message: string, mode: ChatMode) => void;
   disabled?: boolean;
   placeholder?: string;
+  isGenerating?: boolean;
 }
 
 function ChatInputComponent({
   onSend,
   disabled = false,
-  placeholder = 'Ask me to generate events...',
+  placeholder = 'Type a topic to explore...',
+  isGenerating = false,
 }: ChatInputProps) {
+  const [chatMode, setChatMode] = useState<ChatMode>(getInitialMode);
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -32,13 +48,25 @@ function ChatInputComponent({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 150)}px`;
   }, [value]);
 
+  const handleToggleMode = useCallback(() => {
+    setChatMode((prev) => {
+      const next: ChatMode = prev === 'research' ? 'quick' : 'research';
+      try {
+        localStorage.setItem(MODE_STORAGE_KEY, next);
+      } catch {
+        // localStorage unavailable
+      }
+      return next;
+    });
+  }, []);
+
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
 
-    onSend(trimmed);
+    onSend(trimmed, chatMode);
     setValue('');
-  }, [value, disabled, onSend]);
+  }, [value, disabled, onSend, chatMode]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -52,6 +80,9 @@ function ChatInputComponent({
 
   return (
     <div className="flex items-end gap-2 border-t border-gray-200 bg-white p-3">
+      {/* Mode toggle */}
+      <ModeToggle mode={chatMode} onToggle={handleToggleMode} disabled={isGenerating} />
+
       {/* Text input */}
       <div className="relative flex-1">
         <textarea
